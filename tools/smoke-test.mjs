@@ -280,6 +280,20 @@ try {
     .then(() => true)
     .catch(() => false);
   check('Edge TTS đọc liên tiếp nhiều câu', edgeAdvanced);
+
+  const edgeColours = await edgePage.evaluate(() => {
+    const ready = [...document.querySelectorAll('.sent--ready')];
+    const active = document.querySelector('.sent--active');
+    const other = ready.find((el) => el !== active);
+    const bg = (el) => (el ? getComputedStyle(el).backgroundColor : null);
+    return { readyCount: ready.length, activeBg: bg(active), readyBg: bg(other) };
+  });
+  check('câu đã có audio được tô sẵn', edgeColours.readyCount > 1, `${edgeColours.readyCount} câu`);
+  check(
+    'câu đang đọc khác màu với câu chỉ mới có audio',
+    Boolean(edgeColours.activeBg) && edgeColours.activeBg !== edgeColours.readyBg,
+    `đang đọc ${edgeColours.activeBg} · đã đệm ${edgeColours.readyBg}`,
+  );
   await edgePage.locator('#btn-play').click(); // pause
   await edgePage.close();
 

@@ -428,9 +428,25 @@ reader.addEventListener('sentence', (event) => {
   persistPosition();
 });
 
-reader.addEventListener('buffered', () => {
+/** Marks a run of sentences as having audio waiting, or clears the marks. */
+function markReady(range, ready) {
+  if (!range) {
+    for (const el of els.chapter.querySelectorAll('.sent--ready')) {
+      el.classList.remove('sent--ready');
+    }
+    return;
+  }
+  for (let i = range.first; i <= range.last; i++) {
+    els.chapter.querySelector(`.sent[data-i="${i}"]`)?.classList.toggle('sent--ready', ready);
+  }
+}
+
+reader.addEventListener('buffered', (event) => {
+  markReady(event.detail, true);
   els.statLine.textContent = `Lần gọi gần nhất: ${statLine()}`;
 });
+
+reader.addEventListener('unbuffered', (event) => markReady(event.detail, false));
 
 reader.addEventListener('state', (event) => {
   const playing = event.detail === 'playing';

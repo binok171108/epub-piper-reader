@@ -6,6 +6,7 @@
   --line: #e3e1db;
   --accent: #2f6f4f;
   --accent-soft: #d9ecdf;
+  --ready: #fdf6de;
   --shadow: 0 8px 30px rgb(0 0 0 / 12%);
   --reader-size: 18px;
   accent-color: #2f6f4f;
@@ -22,6 +23,7 @@
     --line: #2c3237;
     --accent: #7bc79a;
     --accent-soft: #23372c;
+    --ready: #2b2412;
     --shadow: 0 8px 30px rgb(0 0 0 / 45%);
     accent-color: #7bc79a;
   }
@@ -157,8 +159,10 @@ main {
 .chapter a[data-internal] { color: var(--accent); text-decoration: underline; cursor: pointer; }
 
 .sent { cursor: pointer; border-radius: 4px; }
+/* Audio already synthesised and waiting. Declared before .sent--active so the
+   sentence being spoken keeps the accent colour. */
+.sent--ready,
 .sent--active {
-  background: var(--accent-soft);
   border-radius: 5px;
   padding: 0.1em 0.15em;
   margin: 0 -0.15em;
@@ -166,6 +170,9 @@ main {
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
 }
+
+.sent--ready { background: var(--ready); }
+.sent--active { background: var(--accent-soft); }
 
 .welcome { padding: 12vh 0 0; }
 .welcome h1 { font-size: 26px; margin: 0 0 12px; }

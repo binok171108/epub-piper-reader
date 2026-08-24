@@ -87,6 +87,21 @@ try {
     .then(() => true)
     .catch(() => false);
   check('vẫn highlight từng câu trong một yêu cầu', advanced);
+
+  // Two colours: sentences with audio waiting, and the one being spoken.
+  const colours = await page.evaluate(() => {
+    const ready = [...document.querySelectorAll('.sent--ready')];
+    const active = document.querySelector('.sent--active');
+    const other = ready.find((el) => el !== active);
+    const bg = (el) => (el ? getComputedStyle(el).backgroundColor : null);
+    return { readyCount: ready.length, activeBg: bg(active), readyBg: bg(other) };
+  });
+  check('câu đã có audio được tô sẵn', colours.readyCount > 1, `${colours.readyCount} câu`);
+  check(
+    'câu đang đọc khác màu với câu chỉ mới có audio',
+    Boolean(colours.activeBg) && colours.activeBg !== colours.readyBg,
+    `đang đọc ${colours.activeBg} · đã đệm ${colours.readyBg}`,
+  );
   check(
     'chỉ dùng một yêu cầu cho nhiều câu đã highlight',
     edge.report.requests.length - before === 1,

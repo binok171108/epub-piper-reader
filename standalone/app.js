@@ -208,6 +208,7 @@ class EdgeEngine {
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
     this.pending.clear();
+    markReady(null);
   }
 
   render(index) {
@@ -223,6 +224,7 @@ class EdgeEngine {
       const url = URL.createObjectURL(blob);
       this.urls.set(index, url);
       this.lastStat = { chars: chunk.text.length, ms: Math.round(performance.now() - started) };
+      markReady(chunk, true);
       return { url, boundaries };
     });
     promise.catch(() => {
@@ -242,6 +244,7 @@ class EdgeEngine {
         URL.revokeObjectURL(url);
         this.urls.delete(i);
         this.pending.delete(i);
+        markReady(chunks[i], false);
       }
     }
   }
@@ -491,6 +494,18 @@ const player = {
 };
 
 /* --------------------------------------------------------------- chapter */
+
+/** Marks a chunk's sentences as having audio waiting, or clears every mark. */
+function markReady(chunk, ready) {
+  const container = $('chapter');
+  if (!chunk) {
+    for (const el of container.querySelectorAll('.sent--ready')) el.classList.remove('sent--ready');
+    return;
+  }
+  for (const range of chunk.ranges) {
+    container.querySelector(`.sent[data-i="${range.index}"]`)?.classList.toggle('sent--ready', ready);
+  }
+}
 
 function highlight(index, scroll) {
   for (const el of $('chapter').querySelectorAll('.sent--active')) {

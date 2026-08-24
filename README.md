@@ -144,6 +144,9 @@ yêu cầu (đến sàn 100 ký tự) rồi đọc tiếp, thay vì dừng hẳn
 nói rõ đã nhận được gì trước khi hết giờ — `chưa có turn.start` là relay không
 phản hồi, còn `đã bắt đầu phiên, 0 byte audio` là relay nhận nhưng không dựng nổi.
 
+**Hai màu highlight.** Câu đã có audio chờ sẵn được tô nền vàng nhạt, câu đang
+đọc tô xanh — nhìn là biết bộ đệm đang đi trước bao xa.
+
 Cài đặt còn hiện thông lượng lần gọi gần nhất (`… → 48.2s audio (15.5× thời gian
 thực)`). Nhỏ hơn 1× nghĩa là relay không thể theo kịp và phải tăng độ dài yêu cầu.
 

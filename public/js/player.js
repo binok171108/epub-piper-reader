@@ -209,6 +209,7 @@ export class Reader extends EventTarget {
     this.#cache.clear();
     this.#inFlight.clear();
     this.#failed.clear();
+    this.#emit('unbuffered', null); // everything, nothing is ready any more
     this.#generation++;
     this.#abort.abort();
     this.#abort = new AbortController();
@@ -230,7 +231,7 @@ export class Reader extends EventTarget {
         return; // seeked away while rendering
       }
       this.#cache.set(unit, rendered);
-      this.#emit('buffered', unit);
+      this.#emit('buffered', { first: this.#units[unit].first, last: this.#units[unit].last });
       if (this.#playing && unit === this.#unitOf[this.#index] && this.audio.paused) {
         this.#playCurrent();
       }
@@ -259,6 +260,7 @@ export class Reader extends EventTarget {
       if (unit < from - 1 || unit > from + LOOKAHEAD + 1) {
         URL.revokeObjectURL(entry.url);
         this.#cache.delete(unit);
+        this.#emit('unbuffered', { first: this.#units[unit].first, last: this.#units[unit].last });
       }
     }
   }
