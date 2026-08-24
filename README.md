@@ -71,6 +71,8 @@ Repo này đã có sẵn `.github/workflows/deploy-pages.yml`. Bật một lần
 Rồi mỗi lần push lên `main` là tự deploy. CI tự chạy `npm ci` để sinh lại
 `public/vendor/`, nên không cần commit 39 MB WASM vào git.
 
+Bản đang chạy: **https://binok171108.github.io/epub-piper-reader/**
+
 > Lưu ý: GitHub Pages cho repo **private** chỉ có ở gói Pro/Team/Enterprise.
 > Repo này để public nên dùng được với tài khoản Free.
 
@@ -139,7 +141,7 @@ Tất cả tham số ở trên là của **trang web**, không phải của URL 
 nguyên URL relay vào `edge_endpoint`, còn lại để riêng:
 
 ```
-https://<trang>/?edge_endpoint=wss://relay:8585/edge/v1&edge_format=pcm&edge_gec_version=v1.3.0
+https://binok171108.github.io/epub-piper-reader/?edge_endpoint=wss://relay:8585/edge/v1&edge_format=pcm
 ```
 
 Query có sẵn trong `edge_endpoint` vẫn được giữ nguyên khi client nối thêm
