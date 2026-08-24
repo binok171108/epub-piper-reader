@@ -97,7 +97,16 @@ Khác biệt so với bản PWA:
 | Service worker / offline shell | ✅ | ❌ (bản thân tệp đã là offline) |
 | Nhớ vị trí đọc, thư viện sách | ✅ | ❌ — `file://` không cho IndexedDB tin cậy |
 
-Cấu hình được bằng query, đủ để lưu một bookmark:
+Nhúng sẵn địa chỉ relay vào bản build, để trên điện thoại khỏi phải gõ:
+
+```bash
+npm run standalone -- --endpoint=wss://relay:8585/edge/v1 --voice=vi-VN-HoaiMyNeural
+```
+
+Bản commit trong repo để trống mấy giá trị này — đừng đưa địa chỉ nội bộ của bạn
+vào một repo public.
+
+Hoặc cấu hình bằng query, đủ để lưu một bookmark:
 
 ```
 epub-reader-standalone.html?engine=edge&edge_endpoint=wss://relay:8585/edge/v1&edge_voice=vi-VN-HoaiMyNeural

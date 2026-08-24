@@ -31,6 +31,19 @@ async function read(...parts) {
   return readFile(join(root, ...parts), 'utf8');
 }
 
+/** `--endpoint=wss://... --voice=vi-VN-HoaiMyNeural --engine=edge` */
+function buildDefaults() {
+  const defaults = {};
+  for (const arg of process.argv.slice(2)) {
+    const match = /^--(endpoint|voice|engine)=(.*)$/.exec(arg);
+    if (match) defaults[match[1]] = match[2];
+    else throw new Error(`Tham số không hiểu: ${arg}`);
+  }
+  // Baking in a relay address only makes sense if that engine is selected.
+  if (defaults.endpoint && !defaults.engine) defaults.engine = 'edge';
+  return defaults;
+}
+
 async function main() {
   const shell = await read('standalone', 'shell.html');
   const css = await read('public', 'app.css');
@@ -43,7 +56,12 @@ async function main() {
     ['standalone app', await read('standalone', 'app.js')],
   ];
 
-  const script = modules.map(([label, source]) => flatten(source, label)).join('\n');
+  const defaults = buildDefaults();
+  let script = modules.map(([label, source]) => flatten(source, label)).join('\n');
+
+  const placeholder = 'const BUILD_DEFAULTS = {};';
+  if (!script.includes(placeholder)) throw new Error('Không tìm thấy BUILD_DEFAULTS.');
+  script = script.replace(placeholder, `const BUILD_DEFAULTS = ${JSON.stringify(defaults)};`);
 
   const html = shell
     .replace('/*STYLE*/', () => css)
@@ -56,6 +74,9 @@ async function main() {
   await writeFile(out, html);
   const kb = (Buffer.byteLength(html) / 1024).toFixed(0);
   console.log(`public/epub-reader-standalone.html  ${kb} KB`);
+  if (Object.keys(defaults).length) {
+    console.log(`Mặc định nhúng sẵn: ${JSON.stringify(defaults)}`);
+  }
   console.log('Mở trực tiếp bằng trình duyệt, hoặc đặt lên bất kỳ host tĩnh nào.');
 }
 

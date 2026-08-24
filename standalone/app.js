@@ -10,6 +10,12 @@
  * tools/make-standalone.mjs.
  */
 
+/**
+ * Replaced at build time by `npm run standalone -- --endpoint=... --voice=...`.
+ * Left empty in the committed build so no private host ends up in the repo.
+ */
+const BUILD_DEFAULTS = {};
+
 const $ = (id) => document.getElementById(id);
 
 /** localStorage throws on file:// in some browsers; degrade to memory. */
@@ -31,10 +37,10 @@ const store = (() => {
 })();
 
 const settings = {
-  engine: store.get('engine', 'system'),
+  engine: store.get('engine', BUILD_DEFAULTS.engine ?? 'system'),
   systemVoice: store.get('systemVoice', ''),
-  endpoint: store.get('endpoint', ''),
-  edgeVoice: store.get('edgeVoice', 'vi-VN-HoaiMyNeural'),
+  endpoint: store.get('endpoint', BUILD_DEFAULTS.endpoint ?? ''),
+  edgeVoice: store.get('edgeVoice', BUILD_DEFAULTS.voice ?? 'vi-VN-HoaiMyNeural'),
   bareWs: store.get('bareWs', '1') === '1',
   mp3: store.get('mp3', '1') === '1',
   rate: Number(store.get('rate', 1)),
