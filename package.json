@@ -10,7 +10,7 @@
     "dev": "node scripts/serve.mjs",
     "start": "node scripts/serve.mjs",
     "dist": "node tools/make-dist.mjs",
-    "test": "node tools/make-test-epub.mjs && node tools/make-test-model.mjs && node tools/smoke-test.mjs && node tools/make-standalone.mjs && node tools/test-standalone.mjs",
+    "test": "node tools/test-chunking.mjs && node tools/make-test-epub.mjs && node tools/make-test-model.mjs && node tools/smoke-test.mjs && node tools/make-standalone.mjs && node tools/test-standalone.mjs",
     "icons": "node tools/make-icons.mjs",
     "dump-edge": "node tools/make-test-epub.mjs && node tools/dump-edge-protocol.mjs",
     "standalone": "node tools/make-standalone.mjs"

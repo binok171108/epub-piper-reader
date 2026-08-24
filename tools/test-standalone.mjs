@@ -181,12 +181,21 @@ try {
     )
     .then(() => true)
     .catch(() => false);
-  const shrunk = await stallPage.evaluate(() => Number(localStorage.getItem('chunkChars')));
-  check('timeout thì tự giảm kích thước yêu cầu và đọc tiếp', recovered, `còn ${shrunk} ký tự`);
+  // The effective size is deliberately not persisted, so read it where the
+  // reader reports it: "900 ký tự (đang dùng 100)".
+  const label = await stallPage.locator('#chunk-value').textContent();
+  const shrunk = Number(/đang dùng (\d+)/.exec(label)?.[1] ?? 0);
+  const stored = await stallPage.evaluate(() => localStorage.getItem('chunkChars'));
+  check('timeout thì tự giảm kích thước yêu cầu và đọc tiếp', recovered, label);
   check(
     'đã thực sự giảm xuống mức relay chịu được',
     shrunk > 0 && shrunk <= 120,
     `${shrunk} ký tự (relay chỉ nhận 120)`,
+  );
+  check(
+    'không ghi mức đã giảm vào bộ nhớ',
+    stored === null,
+    `localStorage.chunkChars = ${stored}`,
   );
   await stallPage.locator('#btn-play').click();
   await stallPage.close();

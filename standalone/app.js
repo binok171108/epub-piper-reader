@@ -49,7 +49,8 @@ const settings = {
   wordBoundary: store.get('wordBoundary', '1') === '1',
   edgeTimeouts: {},
   buffer: Number(store.get('buffer', 2)),
-  chunkChars: Number(store.get('chunkChars', 700)),
+  chunkChars: Number(store.get('chunkChars', 900)),
+  firstChunkChars: Number(store.get('firstChunkChars', 300)),
   rate: Number(store.get('rate', 1)),
   autoScroll: store.get('autoScroll', '1') === '1',
   fontSize: Number(store.get('fontSize', 18)),
@@ -61,6 +62,14 @@ let sentences = [];
 let chunks = [];
 /** sentence index -> chunk index */
 let chunkOf = [];
+
+/**
+ * Request size actually in use. Shrinking on a timeout must not be permanent -
+ * writing it to storage once left the reader stuck at one sentence per request
+ * for every session that followed - so it lives here, resets when the setting
+ * changes, and edges back up at each new chapter.
+ */
+const runtime = { chars: settings.chunkChars };
 
 /* --------------------------------------------------------------- helpers */
 
@@ -383,10 +392,9 @@ const player = {
    * it and rebuild, returning whether there was any room left to shrink.
    */
   shrinkOnTimeout(error) {
-    if (!error.timedOut || settings.chunkChars <= MIN_CHUNK_CHARS) return false;
-    settings.chunkChars = Math.max(MIN_CHUNK_CHARS, Math.round(settings.chunkChars / 2));
-    store.set('chunkChars', settings.chunkChars);
-    toast(`Relay không kịp — giảm xuống ${settings.chunkChars} ký tự mỗi yêu cầu.`, 5000);
+    if (!error.timedOut || runtime.chars <= MIN_CHUNK_CHARS) return false;
+    runtime.chars = Math.max(MIN_CHUNK_CHARS, Math.round(runtime.chars / 2));
+    toast(`Relay không kịp — tạm giảm xuống ${runtime.chars} ký tự mỗi yêu cầu.`, 5000);
     showChapter(chapterIndex, this.index);
     applySettings();
     return true;
@@ -525,7 +533,7 @@ function showChapter(index, sentenceIndex = 0) {
   $('chapter').hidden = false;
   $('chapter').innerHTML = book.chapterHtml(chapterIndex);
   sentences = segment($('chapter'));
-  chunks = buildChunks(sentences, settings.chunkChars);
+  chunks = buildChunks(sentences, runtime.chars, Math.min(settings.firstChunkChars, runtime.chars));
   chunkOf = chunkIndexBySentence(chunks);
   engines.edge.reset();
   player.index = sentenceIndex;
@@ -534,12 +542,18 @@ function showChapter(index, sentenceIndex = 0) {
   if (!sentences.length) $('status').textContent = 'Phần này không có văn bản để đọc.';
 }
 
+/** A new chapter is a safe moment to try a larger request again. */
+function relaxChunkSize() {
+  runtime.chars = Math.min(settings.chunkChars, Math.round(runtime.chars * 1.5));
+}
+
 function changeChapter(delta, autoplay) {
   const next = chapterIndex + delta;
   if (next < 0 || next >= book.chapters.length) {
     toast(delta > 0 ? 'Đã hết sách.' : 'Đây là phần đầu tiên.');
     return;
   }
+  relaxChunkSize();
   showChapter(next, 0);
   renderToc();
   if (autoplay) player.start(0);
@@ -560,6 +574,7 @@ function renderToc() {
       closePanels();
       const wasPlaying = player.playing;
       player.stop();
+      relaxChunkSize();
       showChapter(index, 0);
       if (wasPlaying) player.start(0);
     });
@@ -581,6 +596,7 @@ async function openFile(file) {
     $('player').hidden = false;
     $('welcome-hint').textContent = '';
     renderToc();
+    runtime.chars = settings.chunkChars;
     showChapter(0, 0);
   } catch (error) {
     $('welcome-hint').textContent = '';
@@ -603,7 +619,12 @@ function applySettings() {
   $('buffer-range').value = String(settings.buffer);
   $('buffer-value').textContent = `${settings.buffer} khối`;
   $('chunk-range').value = String(settings.chunkChars);
-  $('chunk-value').textContent = `${settings.chunkChars} ký tự`;
+  $('chunk-value').textContent =
+    runtime.chars === settings.chunkChars
+      ? `${settings.chunkChars} ký tự`
+      : `${settings.chunkChars} ký tự (đang dùng ${runtime.chars})`;
+  $('first-range').value = String(settings.firstChunkChars);
+  $('first-value').textContent = `${settings.firstChunkChars} ký tự`;
   $('stat-line').textContent = `Lần gọi gần nhất: ${engines.edge.statLine()}`;
   $('rate-range').value = String(settings.rate);
   $('rate-value').textContent = `${settings.rate.toFixed(2)}×`;
@@ -718,9 +739,24 @@ for (const [id, key, prop] of [
   });
 }
 
+$('first-range').addEventListener('input', () => {
+  $('first-value').textContent = `${$('first-range').value} ký tự`;
+});
+
+$('first-range').addEventListener('change', () => {
+  settings.firstChunkChars = Number($('first-range').value);
+  store.set('firstChunkChars', settings.firstChunkChars);
+  const wasPlaying = player.playing;
+  player.stop();
+  if (book) showChapter(chapterIndex, player.index);
+  applySettings();
+  if (wasPlaying) player.start();
+});
+
 $('chunk-range').addEventListener('change', () => {
   settings.chunkChars = Number($('chunk-range').value);
   store.set('chunkChars', settings.chunkChars);
+  runtime.chars = settings.chunkChars; // an explicit choice overrides any shrink
   // Regrouping invalidates everything already rendered.
   const wasPlaying = player.playing;
   player.stop();

@@ -66,7 +66,9 @@ export class Reader extends EventTarget {
     this.lengthScale = null;
     this.rate = 1;
     /** Characters per request for network voices. */
-    this.chunkChars = 700;
+    this.chunkChars = 900;
+    /** The opening request is kept short so playback starts sooner. */
+    this.firstChunkChars = 300;
     this.lastStat = null;
     this.audio.addEventListener('ended', () => this.#advance());
     this.audio.addEventListener('error', () => {
@@ -162,7 +164,11 @@ export class Reader extends EventTarget {
   #rebuildUnits() {
     this.#units =
       this.#provider === 'edge'
-        ? buildChunks(this.#sentences, this.chunkChars)
+        ? buildChunks(
+            this.#sentences,
+            this.chunkChars,
+            Math.min(this.firstChunkChars, this.chunkChars),
+          )
         : this.#sentences.map((text, index) => ({
             text,
             first: index,

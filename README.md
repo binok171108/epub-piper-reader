@@ -135,12 +135,23 @@ Highlight vẫn theo từng câu: client bật `wordBoundaryEnabled` và dùng c
 không chuyển tiếp `Path:audio.metadata` thì client tự ước lượng theo số ký tự —
 lệch chút nhưng vẫn bám được.
 
+**Kích thước tăng dần.** Yêu cầu đầu của mỗi chương ngắn (mặc định 300 ký tự) để
+bấm phát là đọc gần như ngay; các yêu cầu sau dài hơn (900 ký tự) vì lúc đó đã có
+audio đang phát, đủ thời gian tải khối kế tiếp. Cả hai chỉnh riêng trong Cài đặt.
+
+**Chunk luôn cắt trọn câu.** Một câu không bao giờ bị chia đôi giữa hai yêu cầu;
+câu dài hơn giới hạn thì thành một chunk riêng. `npm test` kiểm tra bằng cách ghép
+các chunk lại và so từng ký tự với văn bản gốc.
+
 **Hạn giờ theo độ dài.** Mỗi yêu cầu được cấp `15s + 40ms mỗi ký tự` (tối đa 3
 phút) — một đoạn 700 ký tự có ~43 giây, thay vì cùng một hạn giờ với một câu.
 Chỉnh bằng `?edge_timeout_base=` và `?edge_timeout_per_char=`.
 
 **Tự thu nhỏ khi quá giờ.** Relay không kịp thì client tự giảm một nửa độ dài
-yêu cầu (đến sàn 100 ký tự) rồi đọc tiếp, thay vì dừng hẳn. Thông báo lỗi cũng
+yêu cầu (đến sàn 100 ký tự) rồi đọc tiếp, thay vì dừng hẳn. Mức đã giảm **chỉ
+sống trong phiên**, không ghi vào bộ nhớ, và mỗi lần sang chương mới lại thử tăng
+lại 1.5× — nếu không thì một lần mạng chậm sẽ khoá bạn ở một câu mỗi yêu cầu mãi
+mãi. Thông báo lỗi cũng
 nói rõ đã nhận được gì trước khi hết giờ — `chưa có turn.start` là relay không
 phản hồi, còn `đã bắt đầu phiên, 0 byte audio` là relay nhận nhưng không dựng nổi.
 

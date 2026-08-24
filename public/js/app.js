@@ -55,6 +55,8 @@ const els = {
   relayField: $('relay-field'),
   chunkRange: $('chunk-range'),
   chunkValue: $('chunk-value'),
+  firstRange: $('first-range'),
+  firstValue: $('first-value'),
   statLine: $('stat-line'),
   relayBoundary: $('relay-boundary'),
   edgeName: $('edge-name'),
@@ -79,12 +81,21 @@ const settings = {
   rate: Number(localStorage.getItem('rate') || 1),
   lengthScale: Number(localStorage.getItem('lengthScale') || 1),
   fontSize: Number(localStorage.getItem('fontSize') || 18),
-  chunkChars: Number(localStorage.getItem('chunkChars') || 700),
+  chunkChars: Number(localStorage.getItem('chunkChars') || 900),
+  firstChunkChars: Number(localStorage.getItem('firstChunkChars') || 300),
   wordBoundary: localStorage.getItem('wordBoundary') !== '0',
   autoScroll: localStorage.getItem('autoScroll') !== '0',
 };
 
 const reader = new Reader($('audio'));
+
+/**
+ * Request size actually in use. Shrinking on a timeout must not be permanent -
+ * persisting it once left the reader stuck at one sentence per request for
+ * every session after - so it lives here, resets when the setting changes, and
+ * edges back up at each new chapter.
+ */
+const runtime = { chars: 0 };
 
 let book = null;
 let bookId = null;
@@ -203,6 +214,8 @@ async function loadBook(id) {
   }
 
   renderToc();
+  runtime.chars = settings.chunkChars;
+  reader.chunkChars = runtime.chars;
   const position = (await getPosition(id)) ?? { chapter: 0, sentence: 0 };
   showChapter(position.chapter, position.sentence);
   refreshStorageInfo();
@@ -220,6 +233,7 @@ function renderToc() {
     button.setAttribute('aria-current', String(index === chapterIndex));
     button.addEventListener('click', () => {
       closePanels();
+      relaxChunkSize();
       showChapter(index, 0);
     });
     li.append(button);
@@ -273,7 +287,14 @@ function persistPosition(immediate = false) {
   else saveTimer = setTimeout(write, 800);
 }
 
+/** A new chapter is a safe moment to try a larger request again. */
+function relaxChunkSize() {
+  runtime.chars = Math.min(settings.chunkChars, Math.round(runtime.chars * 1.5));
+  reader.chunkChars = runtime.chars;
+}
+
 function changeChapter(delta, autoplay) {
+  relaxChunkSize();
   const next = chapterIndex + delta;
   if (next < 0 || next >= book.chapters.length) {
     toast(delta > 0 ? 'Đã hết sách.' : 'Đây là phần đầu tiên.');
@@ -399,10 +420,17 @@ function statLine() {
 }
 
 function applySettings() {
+  if (!runtime.chars) runtime.chars = settings.chunkChars;
   els.chunkRange.value = String(settings.chunkChars);
-  els.chunkValue.textContent = `${settings.chunkChars} ký tự`;
+  els.chunkValue.textContent =
+    runtime.chars === settings.chunkChars
+      ? `${settings.chunkChars} ký tự`
+      : `${settings.chunkChars} ký tự (đang dùng ${runtime.chars})`;
+  els.firstRange.value = String(settings.firstChunkChars);
+  els.firstValue.textContent = `${settings.firstChunkChars} ký tự`;
   els.statLine.textContent = `Lần gọi gần nhất: ${statLine()}`;
-  reader.chunkChars = settings.chunkChars;
+  reader.chunkChars = runtime.chars;
+  reader.firstChunkChars = settings.firstChunkChars;
   els.relayEndpoint.value = localStorage.getItem('relayEndpoint') ?? '';
   els.relayBare.checked = localStorage.getItem('relayBare') !== '0';
   els.relayBoundary.checked = settings.wordBoundary;
@@ -472,11 +500,10 @@ reader.addEventListener('failed', (event) => {
   const { message, timedOut } = event.detail;
   // A request that ran out of time was probably too big for this relay; halve
   // it and pick up where the reader left off.
-  if (timedOut && settings.chunkChars > MIN_CHUNK_CHARS) {
-    settings.chunkChars = Math.max(MIN_CHUNK_CHARS, Math.round(settings.chunkChars / 2));
-    save('chunkChars', settings.chunkChars);
-    reader.chunkChars = settings.chunkChars;
-    toast(`Relay không kịp — giảm xuống ${settings.chunkChars} ký tự mỗi yêu cầu.`, 5000);
+  if (timedOut && runtime.chars > MIN_CHUNK_CHARS) {
+    runtime.chars = Math.max(MIN_CHUNK_CHARS, Math.round(runtime.chars / 2));
+    reader.chunkChars = runtime.chars;
+    toast(`Relay không kịp — tạm giảm xuống ${runtime.chars} ký tự mỗi yêu cầu.`, 5000);
     const wasPlaying = reader.playing;
     reader.pause();
     if (book) showChapter(chapterIndex, reader.index);
@@ -567,10 +594,24 @@ els.chunkRange.addEventListener('input', () => {
   els.chunkValue.textContent = `${els.chunkRange.value} ký tự`;
 });
 
+els.firstRange.addEventListener('input', () => {
+  els.firstValue.textContent = `${els.firstRange.value} ký tự`;
+});
+
+els.firstRange.addEventListener('change', () => {
+  settings.firstChunkChars = Number(els.firstRange.value);
+  save('firstChunkChars', settings.firstChunkChars);
+  const wasPlaying = reader.playing;
+  reader.pause();
+  if (book) showChapter(chapterIndex, reader.index);
+  applySettings();
+  if (wasPlaying) startPlayback();
+});
+
 els.chunkRange.addEventListener('change', () => {
   settings.chunkChars = Number(els.chunkRange.value);
   save('chunkChars', settings.chunkChars);
-  reader.chunkChars = settings.chunkChars;
+  runtime.chars = settings.chunkChars; // an explicit choice overrides any shrink
   // Regrouping invalidates everything already rendered.
   const wasPlaying = reader.playing;
   reader.pause();

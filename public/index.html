@@ -98,11 +98,21 @@
       </p>
 
       <label class="field" style="margin-top:18px">
-        <span>Độ dài mỗi yêu cầu <b id="chunk-value">700 ký tự</b></span>
-        <input type="range" id="chunk-range" min="200" max="1600" step="100" value="700">
+        <span>Yêu cầu đầu tiên <b id="first-value">300 ký tự</b></span>
+        <input type="range" id="first-range" min="100" max="900" step="50" value="300">
         <span class="hint">
-          Gộp nhiều câu vào một lần gọi. Dài hơn thì tổng số lần kết nối ít đi rất
-          nhiều — đây mới là thứ quyết định có khựng giữa câu hay không.
+          Ngắn thì bấm phát là đọc gần như ngay. Chỉ áp dụng cho khối đầu của mỗi
+          chương, lúc chưa có gì để nghe.
+        </span>
+      </label>
+
+      <label class="field">
+        <span>Các yêu cầu sau <b id="chunk-value">900 ký tự</b></span>
+        <input type="range" id="chunk-range" min="200" max="2000" step="100" value="900">
+        <span class="hint">
+          Khi đã có audio đang phát thì có cả một khối thời gian để tải khối kế
+          tiếp, nên dài hơn là rẻ hơn. Chunk luôn cắt trọn câu, không bao giờ cắt
+          giữa câu.
         </span>
       </label>
 

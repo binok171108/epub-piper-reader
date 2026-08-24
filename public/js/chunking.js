@@ -13,12 +13,21 @@
  * synthesis cannot outrun playback and no amount of buffering helps - the
  * buffer just drains more slowly. Asking for a paragraph at a time amortises
  * the overhead across far more audio.
+ *
+ * Sentences are never split: a sentence longer than the limit becomes a chunk
+ * of its own rather than being cut in half.
+ *
+ * `firstMaxChars` sizes only the opening request. Nothing is playing yet at
+ * that point and the reader is waiting, so it pays to keep the first one
+ * short; once audio is running there is a whole chunk's worth of time to
+ * fetch the next, and bigger is cheaper.
  */
-export function buildChunks(sentences, maxChars) {
+export function buildChunks(sentences, maxChars, firstMaxChars = maxChars) {
   const chunks = [];
   let current = null;
   sentences.forEach((text, index) => {
-    if (current && current.text.length + 1 + text.length > maxChars) current = null;
+    const limit = chunks.length <= 1 ? firstMaxChars : maxChars;
+    if (current && current.text.length + 1 + text.length > limit) current = null;
     if (!current) {
       current = { first: index, last: index, text: '', ranges: [] };
       chunks.push(current);
