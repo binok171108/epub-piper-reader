@@ -52,6 +52,7 @@ async function main() {
     ['fflate', await read('public', 'vendor', 'fflate.mjs')],
     ['epub.js', await read('public', 'js', 'epub.js')],
     ['segment.js', await read('public', 'js', 'segment.js')],
+    ['chunking.js', await read('public', 'js', 'chunking.js')],
     ['edge-tts.js', await read('public', 'js', 'edge-tts.js')],
     ['standalone app', await read('standalone', 'app.js')],
   ];

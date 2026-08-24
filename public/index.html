@@ -96,6 +96,17 @@
         Địa chỉ lưu trong trình duyệt này. Tham số <code>?edge_endpoint=</code> trên
         URL vẫn được ưu tiên hơn.
       </p>
+
+      <label class="field" style="margin-top:18px">
+        <span>Độ dài mỗi yêu cầu <b id="chunk-value">700 ký tự</b></span>
+        <input type="range" id="chunk-range" min="200" max="1600" step="100" value="700">
+        <span class="hint">
+          Gộp nhiều câu vào một lần gọi. Dài hơn thì tổng số lần kết nối ít đi rất
+          nhiều — đây mới là thứ quyết định có khựng giữa câu hay không.
+        </span>
+      </label>
+
+      <p class="hint" id="stat-line"></p>
     </div>
 
     <div class="field" id="edge-field">

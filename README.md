@@ -122,9 +122,13 @@ Microsoft. Với một câu tiếng Việt chỉ dài 3–5 giây audio, phần 
 có thể ngang hoặc hơn chính đoạn audio. Khi tốc độ dựng chậm hơn tốc độ đọc thì
 buffer **chắc chắn cạn** — đệm sâu hơn chỉ dời chỗ khựng về sau, không xoá được nó.
 
-Nên bản một tệp **gộp nhiều câu vào một yêu cầu** (Cài đặt → *Độ dài mỗi yêu cầu*,
-mặc định 700 ký tự ≈ một đoạn văn). Chi phí cố định được chia đều cho nhiều audio
-hơn hẳn — trong bộ test, cả chương 7 câu đi trong **đúng một** lần gọi.
+Nên **cả hai bản** đều gộp nhiều câu vào một yêu cầu khi dùng giọng mạng (Cài đặt
+→ *Độ dài mỗi yêu cầu*, mặc định 700 ký tự ≈ một đoạn văn). Chi phí cố định được
+chia đều cho nhiều audio hơn hẳn — trong bộ test, cả chương 7 câu đi trong **đúng
+một** lần gọi.
+
+Giọng Piper chạy tại chỗ nên vẫn đi từng câu: không có chi phí kết nối để chia,
+và câu ngắn thì bắt đầu đọc sớm hơn.
 
 Highlight vẫn theo từng câu: client bật `wordBoundaryEnabled` và dùng các sự kiện
 `WordBoundary` mà dịch vụ trả về để biết mỗi câu bắt đầu ở giây thứ mấy. Relay nào

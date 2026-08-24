@@ -280,32 +280,34 @@ try {
     .then(() => true)
     .catch(() => false);
   check('Edge TTS đọc liên tiếp nhiều câu', edgeAdvanced);
-
-  // Jump to the sentence with XML-special characters so it gets synthesised.
-  await edgePage.locator('.sent', { hasText: 'Toán' }).click();
-  for (let i = 0; i < 60 && !edge.report.requests.some((r) => r.decoded?.includes('Toán &')); i++) {
-    await edgePage.waitForTimeout(500);
-  }
-  await edgePage.locator('#btn-play').click();
+  await edgePage.locator('#btn-play').click(); // pause
   await edgePage.close();
 
   const first = edge.report.requests[0] ?? {};
   check('máy chủ không thấy lỗi giao thức', edge.report.problems.length === 0, edge.report.problems.join(' || '));
   check('gửi đúng tên giọng', first.voice === 'vi-VN-HoaiMyNeural', String(first.voice));
   check('gửi đúng outputFormat', first.format === 'riff-24khz-16bit-mono-pcm', String(first.format));
-  check('gửi đúng nội dung câu', first.text === 'Chương một', JSON.stringify(first.text));
+
+  // Batching: the seven-sentence chapter goes out as one paragraph-sized
+  // request rather than seven separate ones.
+  // Playback runs into chapter two, so count only what chapter one cost.
+  const chapterOne = edge.report.requests.filter((r) => r.decoded?.startsWith('Chương một'));
   check(
-    'gửi đủ một yêu cầu cho mỗi câu',
-    edge.report.requests.length >= 3,
-    `${edge.report.requests.length} yêu cầu`,
+    'gộp cả chương vào một yêu cầu',
+    chapterOne.length === 1,
+    `${chapterOne.length} yêu cầu cho 7 câu`,
+  );
+  check(
+    'yêu cầu chứa cả chương',
+    first.decoded?.startsWith('Chương một') && first.decoded?.includes('kết thúc ở đây'),
+    JSON.stringify(first.decoded?.slice(0, 60)),
   );
   // The chapter contains "Toán & Lý < Hoá." - it must arrive XML-escaped and
-  // decode back to exactly the same string.
-  const escaped = edge.report.requests.find((r) => r.decoded?.includes('Toán &'));
+  // decode back to exactly the same characters.
   check(
     'escape XML đúng cho ký tự đặc biệt',
-    Boolean(escaped) && escaped.text.includes('&amp;') && escaped.decoded === 'Toán & Lý < Hoá.',
-    escaped ? `${escaped.text} -> ${escaped.decoded}` : 'không thấy câu này được gửi',
+    first.text?.includes('Toán &amp; Lý &lt; Hoá.') && first.decoded?.includes('Toán & Lý < Hoá.'),
+    first.text?.includes('&amp;') ? 'có escape' : 'không thấy escape',
   );
   // A relay that streams headerless PCM (?edge_format=pcm): the client has to
   // recognise there is no container and wrap the samples itself.

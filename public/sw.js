@@ -19,6 +19,7 @@ const SHELL_FILES = [
   './icons/icon.svg',
   './icons/apple-touch-icon.png',
   './js/app.js',
+  './js/chunking.js',
   './js/edge-tts.js',
   './js/epub.js',
   './js/player.js',

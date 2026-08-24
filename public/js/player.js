@@ -1,13 +1,18 @@
 import { EdgeTts } from './edge-tts.js';
+import { activeSentence, buildChunks, chunkIndexBySentence, sentenceStarts } from './chunking.js';
 
 /**
- * Drives playback: keeps a small look-ahead of synthesised sentences so the
- * next one is usually ready before the current finishes, and feeds them to a
- * single <audio> element (which is what lets iOS keep playing with the screen
- * locked and show lock-screen controls).
+ * Drives playback through a single <audio> element, which is what gives iOS
+ * lock-screen controls and lets audio continue when the screen turns off.
+ *
+ * The queue works in *units*, not sentences. Piper runs on the device, so one
+ * sentence per unit keeps latency low. Edge voices go over the network, where
+ * a request costs a connection setup regardless of how much audio comes back -
+ * there a unit is a whole paragraph, and sentence highlighting is recovered
+ * from the WordBoundary metadata inside it.
  */
 
-/** How many sentences to synthesise ahead of the one being played. */
+/** How many units to synthesise ahead of the one being played. */
 const LOOKAHEAD = 2;
 
 export function encodeWav(pcm, sampleRate) {
@@ -37,16 +42,21 @@ export function encodeWav(pcm, sampleRate) {
 export class Reader extends EventTarget {
   #worker = null;
   #edge = null;
+  #provider = 'piper';
   #abort = new AbortController();
   #pending = new Map(); // request id -> {resolve, reject}
   #nextId = 1;
   #ready = null;
-  #cache = new Map(); // sentence index -> blob URL
+  #cache = new Map(); // unit index -> {url, boundaries}
   #inFlight = new Set();
   #failed = new Set();
   #generation = 0;
   #sentences = [];
-  #index = 0;
+  #units = [];
+  #unitOf = []; // sentence index -> unit index
+  #index = 0; // sentence index
+  #unit = -1; // unit currently loaded into the audio element
+  #starts = null; // sentence start times inside that unit
   #playing = false;
   #unlocked = false;
 
@@ -55,10 +65,14 @@ export class Reader extends EventTarget {
     this.audio = audio;
     this.lengthScale = null;
     this.rate = 1;
+    /** Characters per request for network voices. */
+    this.chunkChars = 700;
+    this.lastStat = null;
     this.audio.addEventListener('ended', () => this.#advance());
     this.audio.addEventListener('error', () => {
       if (this.#playing) this.#advance();
     });
+    this.audio.addEventListener('timeupdate', () => this.#followAudio());
   }
 
   get index() {
@@ -71,6 +85,11 @@ export class Reader extends EventTarget {
 
   get sentenceCount() {
     return this.#sentences.length;
+  }
+
+  /** Throughput of the last network request, or null for on-device voices. */
+  get stat() {
+    return this.lastStat;
   }
 
   #emit(type, detail) {
@@ -106,6 +125,9 @@ export class Reader extends EventTarget {
    */
   setVoice(voice, urls, edgeOptions = {}) {
     this.#clearCache();
+    this.#provider = voice.provider;
+    this.#rebuildUnits();
+
     if (voice.provider === 'edge') {
       this.#edge = new EdgeTts({ voice: voice.name, ...edgeOptions });
       this.#ready = Promise.resolve({ voice: voice.id });
@@ -135,6 +157,23 @@ export class Reader extends EventTarget {
     return this.#ready;
   }
 
+  /* --------------------------------------------------------------- units */
+
+  #rebuildUnits() {
+    this.#units =
+      this.#provider === 'edge'
+        ? buildChunks(this.#sentences, this.chunkChars)
+        : this.#sentences.map((text, index) => ({
+            text,
+            first: index,
+            last: index,
+            ranges: [{ index, start: 0 }],
+          }));
+    this.#unitOf = chunkIndexBySentence(this.#units);
+    this.#unit = -1;
+    this.#starts = null;
+  }
+
   /** Piper's synthesis-speed knob expressed the way Edge wants it. */
   #edgeRate() {
     if (!this.lengthScale) return '+0%';
@@ -142,53 +181,66 @@ export class Reader extends EventTarget {
     return `${percent >= 0 ? '+' : ''}${percent}%`;
   }
 
-  /** Produces one sentence of audio, whichever engine is selected. */
-  #renderSentence(text) {
+  /** Produces one unit of audio, whichever engine is selected. */
+  #renderUnit(text) {
     if (this.#edge) {
       this.#edge.rate = this.#edgeRate();
-      return this.#edge.synthesize(text, { signal: this.#abort.signal }).then((r) => r.blob);
+      const started = performance.now();
+      return this.#edge.synthesize(text, { signal: this.#abort.signal }).then(({ blob, boundaries }) => {
+        this.lastStat = { chars: text.length, ms: Math.round(performance.now() - started) };
+        return { url: URL.createObjectURL(blob), boundaries };
+      });
     }
     if (!this.#worker) return Promise.reject(new Error('Chưa chọn giọng đọc.'));
     const id = this.#nextId++;
     return new Promise((resolve, reject) => {
       this.#pending.set(id, { resolve, reject });
       this.#worker.postMessage({ type: 'synth', id, text, lengthScale: this.lengthScale });
-    }).then(({ pcm, sampleRate }) => encodeWav(pcm, sampleRate));
+    }).then(({ pcm, sampleRate }) => ({
+      url: URL.createObjectURL(encodeWav(pcm, sampleRate)),
+      boundaries: null,
+    }));
   }
 
   /* -------------------------------------------------------------- queue */
 
   #clearCache() {
-    for (const url of this.#cache.values()) URL.revokeObjectURL(url);
+    for (const entry of this.#cache.values()) URL.revokeObjectURL(entry.url);
     this.#cache.clear();
     this.#inFlight.clear();
     this.#failed.clear();
     this.#generation++;
     this.#abort.abort();
     this.#abort = new AbortController();
+    this.#unit = -1;
+    this.#starts = null;
   }
 
-  /** Synthesises `index` if it is not already cached or being worked on. */
-  async #prepare(index) {
-    if (index < 0 || index >= this.#sentences.length) return;
-    if (this.#cache.has(index) || this.#inFlight.has(index)) return;
-    if (this.#failed.has(index)) return; // a failure must not retry in a loop
+  async #prepare(unit) {
+    if (unit < 0 || unit >= this.#units.length) return;
+    if (this.#cache.has(unit) || this.#inFlight.has(unit)) return;
+    if (this.#failed.has(unit)) return; // a failure must not retry in a loop
 
     const generation = this.#generation;
-    this.#inFlight.add(index);
+    this.#inFlight.add(unit);
     try {
-      const blob = await this.#renderSentence(this.#sentences[index]);
-      if (generation !== this.#generation) return; // seeked away while rendering
-      this.#cache.set(index, URL.createObjectURL(blob));
-      this.#emit('buffered', index);
-      if (this.#playing && index === this.#index && this.audio.paused) this.#playCurrent();
+      const rendered = await this.#renderUnit(this.#units[unit].text);
+      if (generation !== this.#generation) {
+        URL.revokeObjectURL(rendered.url);
+        return; // seeked away while rendering
+      }
+      this.#cache.set(unit, rendered);
+      this.#emit('buffered', unit);
+      if (this.#playing && unit === this.#unitOf[this.#index] && this.audio.paused) {
+        this.#playCurrent();
+      }
     } catch (error) {
       if (generation === this.#generation) {
-        this.#failed.add(index);
+        this.#failed.add(unit);
         this.#emit('failed', error.message);
       }
     } finally {
-      this.#inFlight.delete(index);
+      this.#inFlight.delete(unit);
       this.#trim();
       this.#fill();
     }
@@ -196,15 +248,17 @@ export class Reader extends EventTarget {
 
   #fill() {
     if (!this.#ready) return; // no voice selected yet
-    for (let i = this.#index; i <= this.#index + LOOKAHEAD; i++) this.#prepare(i);
+    const from = this.#unitOf[this.#index] ?? 0;
+    for (let i = from; i <= from + LOOKAHEAD; i++) this.#prepare(i);
   }
 
   /** Drops audio well behind or ahead of the cursor to bound memory use. */
   #trim() {
-    for (const [index, url] of this.#cache) {
-      if (index < this.#index - 1 || index > this.#index + LOOKAHEAD + 1) {
-        URL.revokeObjectURL(url);
-        this.#cache.delete(index);
+    const from = this.#unitOf[this.#index] ?? 0;
+    for (const [unit, entry] of this.#cache) {
+      if (unit < from - 1 || unit > from + LOOKAHEAD + 1) {
+        URL.revokeObjectURL(entry.url);
+        this.#cache.delete(unit);
       }
     }
   }
@@ -224,6 +278,7 @@ export class Reader extends EventTarget {
     this.#clearCache();
     this.#sentences = sentences;
     this.#index = Math.min(Math.max(startIndex, 0), Math.max(sentences.length - 1, 0));
+    this.#rebuildUnits();
     this.#emit('sentence', this.#index);
   }
 
@@ -248,15 +303,50 @@ export class Reader extends EventTarget {
   }
 
   #playCurrent() {
-    const url = this.#cache.get(this.#index);
-    if (!url) {
+    const unit = this.#unitOf[this.#index] ?? 0;
+    const entry = this.#cache.get(unit);
+    if (!entry) {
       this.#emit('status', { message: 'Đang tổng hợp giọng đọc…' });
       return;
     }
-    this.audio.src = url;
-    this.audio.playbackRate = this.rate; // not all browsers keep it across src
+
+    // Already playing the right unit: just move the playhead.
+    if (unit === this.#unit && this.#starts) {
+      this.#seekWithin(unit);
+      if (this.audio.paused) this.audio.play().catch(() => {});
+      return;
+    }
+
+    this.#unit = unit;
+    this.#starts = null;
+    this.audio.onloadedmetadata = () => {
+      this.#starts = sentenceStarts(this.#units[unit], entry.boundaries, this.audio.duration);
+      if (this.lastStat) this.lastStat.seconds = this.audio.duration;
+      this.#seekWithin(unit);
+    };
+    this.audio.src = entry.url;
+    this.audio.playbackRate = this.rate;
     this.audio.play().catch((error) => this.#emit('failed', error.message));
     this.#emit('status', { message: '' });
+  }
+
+  /** Jumps to where the current sentence begins inside the loaded unit. */
+  #seekWithin(unit) {
+    if (!this.#starts) return;
+    const offset = this.#units[unit].ranges.findIndex((r) => r.index === this.#index);
+    if (offset > 0 && this.#starts[offset] != null) this.audio.currentTime = this.#starts[offset];
+  }
+
+  /** Keeps the highlighted sentence in step with a multi-sentence unit. */
+  #followAudio() {
+    if (!this.#playing || !this.#starts || this.#unit < 0) return;
+    const unit = this.#units[this.#unit];
+    if (unit.ranges.length < 2) return;
+    const index = unit.ranges[activeSentence(this.#starts, this.audio.currentTime)].index;
+    if (index !== this.#index) {
+      this.#index = index;
+      this.#emit('sentence', index);
+    }
   }
 
   pause() {
@@ -271,18 +361,21 @@ export class Reader extends EventTarget {
 
   #advance() {
     if (!this.#playing) return;
-    if (this.#index + 1 >= this.#sentences.length) {
+    const unit = this.#unitOf[this.#index] ?? 0;
+    const next = (this.#units[unit]?.last ?? this.#index) + 1;
+    if (next >= this.#sentences.length) {
       this.#playing = false;
       this.#emit('state', 'paused');
       this.#emit('chapterend');
       return;
     }
-    this.seek(this.#index + 1);
+    this.seek(next);
   }
 
   seek(index) {
     const clamped = Math.min(Math.max(index, 0), Math.max(this.#sentences.length - 1, 0));
-    const jumped = Math.abs(clamped - this.#index) > LOOKAHEAD + 1;
+    const unit = this.#unitOf[clamped] ?? 0;
+    const jumped = Math.abs(unit - (this.#unitOf[this.#index] ?? 0)) > LOOKAHEAD + 1;
     this.#index = clamped;
     this.#emit('sentence', clamped);
     if (jumped) this.#clearCache();
@@ -299,7 +392,6 @@ export class Reader extends EventTarget {
   destroy() {
     this.pause();
     this.#clearCache();
-    this.#abort.abort();
     this.#worker?.terminate();
     this.#worker = null;
     this.#edge = null;

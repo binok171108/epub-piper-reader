@@ -50,6 +50,9 @@ const els = {
   relayEndpoint: $('relay-endpoint'),
   relayBare: $('relay-bare'),
   relayField: $('relay-field'),
+  chunkRange: $('chunk-range'),
+  chunkValue: $('chunk-value'),
+  statLine: $('stat-line'),
   edgeName: $('edge-name'),
   addEdge: $('btn-add-edge'),
   modelField: $('model-field'),
@@ -72,6 +75,7 @@ const settings = {
   rate: Number(localStorage.getItem('rate') || 1),
   lengthScale: Number(localStorage.getItem('lengthScale') || 1),
   fontSize: Number(localStorage.getItem('fontSize') || 18),
+  chunkChars: Number(localStorage.getItem('chunkChars') || 700),
   autoScroll: localStorage.getItem('autoScroll') !== '0',
 };
 
@@ -377,7 +381,23 @@ async function refreshStorageInfo() {
   els.storageInfo.textContent = `${parts.join(' · ')}.`;
 }
 
+/** Throughput of the last network request; below 1x no buffer setting helps. */
+function statLine() {
+  const stat = reader.stat;
+  if (!stat) return 'Chưa có số liệu.';
+  const parts = [`${stat.chars} ký tự trong ${(stat.ms / 1000).toFixed(1)}s`];
+  if (stat.seconds) {
+    parts.push(`→ ${stat.seconds.toFixed(1)}s audio`);
+    parts.push(`(${(stat.seconds / (stat.ms / 1000)).toFixed(1)}× thời gian thực)`);
+  }
+  return parts.join(' ');
+}
+
 function applySettings() {
+  els.chunkRange.value = String(settings.chunkChars);
+  els.chunkValue.textContent = `${settings.chunkChars} ký tự`;
+  els.statLine.textContent = `Lần gọi gần nhất: ${statLine()}`;
+  reader.chunkChars = settings.chunkChars;
   els.relayEndpoint.value = localStorage.getItem('relayEndpoint') ?? '';
   els.relayBare.checked = localStorage.getItem('relayBare') !== '0';
   document.documentElement.style.setProperty('--reader-size', `${settings.fontSize}px`);
@@ -400,6 +420,10 @@ function save(key, value) {
 reader.addEventListener('sentence', (event) => {
   highlight(event.detail, true);
   persistPosition();
+});
+
+reader.addEventListener('buffered', () => {
+  els.statLine.textContent = `Lần gọi gần nhất: ${statLine()}`;
 });
 
 reader.addEventListener('state', (event) => {
@@ -497,6 +521,22 @@ for (const [el, key, prop] of [
     toast('Đã lưu. Bấm phát để kết nối lại.');
   });
 }
+
+els.chunkRange.addEventListener('input', () => {
+  els.chunkValue.textContent = `${els.chunkRange.value} ký tự`;
+});
+
+els.chunkRange.addEventListener('change', () => {
+  settings.chunkChars = Number(els.chunkRange.value);
+  save('chunkChars', settings.chunkChars);
+  reader.chunkChars = settings.chunkChars;
+  // Regrouping invalidates everything already rendered.
+  const wasPlaying = reader.playing;
+  reader.pause();
+  if (book) showChapter(chapterIndex, reader.index);
+  applySettings();
+  if (wasPlaying) startPlayback();
+});
 
 els.addEdge.addEventListener('click', () => {
   const name = els.edgeName.value.trim();

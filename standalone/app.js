@@ -171,64 +171,6 @@ class SystemEngine {
 
 /* ------------------------------------------------------------ edge relay */
 
-/* --------------------------------------------------------------- chunking */
-
-/**
- * Groups consecutive sentences into one synthesis request.
- *
- * One WebSocket per sentence means paying a TLS handshake, a relay hop and an
- * upstream connection for every few seconds of speech, which no amount of
- * buffering can hide - the pipeline simply cannot outrun playback. Asking for
- * a paragraph at a time amortises that overhead across far more audio.
- */
-function buildChunks(list, maxChars) {
-  const chunks = [];
-  let current = null;
-  list.forEach((text, index) => {
-    if (current && current.text.length + 1 + text.length > maxChars) current = null;
-    if (!current) {
-      current = { first: index, last: index, text: '', ranges: [] };
-      chunks.push(current);
-    }
-    const start = current.text.length ? current.text.length + 1 : 0;
-    current.text = current.text ? `${current.text} ${text}` : text;
-    current.ranges.push({ index, start });
-    current.last = index;
-  });
-  return chunks;
-}
-
-/**
- * Where each sentence of a chunk begins, in seconds.
- *
- * WordBoundary events give an audio offset per spoken word; walking them
- * against the text recovers a character position, and from there a sentence.
- * Without metadata the split is estimated from character counts, which drifts
- * a little but still tracks the reading.
- */
-function sentenceStarts(chunk, boundaries, duration) {
-  if (boundaries?.length) {
-    const marks = [];
-    let cursor = 0;
-    for (const boundary of boundaries) {
-      const at = chunk.text.indexOf(boundary.text, cursor);
-      if (at < 0) continue;
-      cursor = at + boundary.text.length;
-      marks.push({ charPos: at, seconds: boundary.timeMs / 1000 });
-    }
-    if (marks.length) {
-      return chunk.ranges.map((range, i) => {
-        if (i === 0) return 0;
-        return marks.find((m) => m.charPos >= range.start)?.seconds ?? null;
-      });
-    }
-  }
-  const total = chunk.text.length || 1;
-  return chunk.ranges.map((range) => (duration || 0) * (range.start / total));
-}
-
-/* ------------------------------------------------------------ edge relay */
-
 class EdgeEngine {
   constructor(audio) {
     this.audio = audio;
@@ -364,10 +306,7 @@ class EdgeEngine {
 
       this.audio.ontimeupdate = () => {
         if (!starts) return;
-        let current = 0;
-        for (let i = 0; i < starts.length; i++) {
-          if (starts[i] != null && starts[i] <= this.audio.currentTime) current = i;
-        }
+        const current = activeSentence(starts, this.audio.currentTime);
         if (current !== active) {
           active = current;
           onSentence?.(chunk.ranges[current].index);
@@ -540,10 +479,7 @@ function showChapter(index, sentenceIndex = 0) {
   $('chapter').innerHTML = book.chapterHtml(chapterIndex);
   sentences = segment($('chapter'));
   chunks = buildChunks(sentences, settings.chunkChars);
-  chunkOf = [];
-  chunks.forEach((chunk, index) => {
-    for (const range of chunk.ranges) chunkOf[range.index] = index;
-  });
+  chunkOf = chunkIndexBySentence(chunks);
   engines.edge.reset();
   player.index = sentenceIndex;
   window.scrollTo(0, 0);
