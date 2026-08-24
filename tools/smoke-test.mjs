@@ -307,6 +307,36 @@ try {
     Boolean(escaped) && escaped.text.includes('&amp;') && escaped.decoded === 'Toán & Lý < Hoá.',
     escaped ? `${escaped.text} -> ${escaped.decoded}` : 'không thấy câu này được gửi',
   );
+  // A relay that streams headerless PCM (?edge_format=pcm): the client has to
+  // recognise there is no container and wrap the samples itself.
+  const pcmPage = await browser.newPage();
+  pcmPage.on('pageerror', (error) => errors.push(String(error)));
+  await pcmPage.goto(
+    `${BASE}/?edge_endpoint=ws://localhost:${EDGE_PORT}/edge/v1&edge_format=pcm`,
+    { waitUntil: 'networkidle' },
+  );
+  // Each browser.newPage() gets its own context, so the book must be reopened.
+  await pcmPage.setInputFiles('#file-input', fileURLToPath(new URL('../test-book.epub', import.meta.url)));
+  await pcmPage.waitForSelector('.sent[data-i]', { timeout: 15000 });
+  await pcmPage.locator('#btn-settings').click();
+  await pcmPage.selectOption('#voice-select', 'edge:vi-VN-HoaiMyNeural');
+  await pcmPage.locator('#panel-settings [data-close]').click();
+  await pcmPage.locator('#btn-play').click();
+  const pcmDuration = await pcmPage
+    .waitForFunction(
+      () => {
+        const audio = document.getElementById('audio');
+        return audio.src.startsWith('blob:') && audio.duration > 0.2 ? audio.duration : false;
+      },
+      null,
+      { timeout: 30000 },
+    )
+    .then((handle) => handle.jsonValue())
+    .catch(() => 0);
+  check('phát được PCM thô từ relay', pcmDuration > 0.2, `${Number(pcmDuration).toFixed(2)}s`);
+  await pcmPage.locator('#btn-play').click();
+  await pcmPage.close();
+
   await edge.close();
 
   /* --------------------------------------------------- service worker */

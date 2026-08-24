@@ -21,7 +21,7 @@ const DEFAULT_GEC_VERSION = '1-130.0.2849.68';
 const DEFAULT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3';
 const REQUEST_TIMEOUT_MS = 20000;
 
-/** Audio container per output format, so the Blob gets a type the player can use. */
+/** Audio container per output format, used only when the bytes say nothing. */
 const FORMAT_MIME = {
   'audio-16khz-32kbitrate-mono-mp3': 'audio/mpeg',
   'audio-24khz-48kbitrate-mono-mp3': 'audio/mpeg',
@@ -29,6 +29,9 @@ const FORMAT_MIME = {
   'audio-48khz-96kbitrate-mono-mp3': 'audio/mpeg',
   'riff-24khz-16bit-mono-pcm': 'audio/wav',
 };
+
+/** Assumed when a headerless PCM stream does not state its rate. */
+const DEFAULT_PCM_RATE = 24000;
 
 /** Difference between the Windows file time epoch and the Unix epoch. */
 const WINDOWS_EPOCH_OFFSET_SECONDS = 11644473600n;
@@ -63,6 +66,53 @@ function timestamp(date = new Date()) {
     `${date.getUTCFullYear()} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:` +
     `${pad(date.getUTCSeconds())} GMT+0000 (Coordinated Universal Time)`
   );
+}
+
+function startsWith(bytes, text, offset = 0) {
+  if (bytes.length < offset + text.length) return false;
+  return [...text].every((char, i) => bytes[offset + i] === char.charCodeAt(0));
+}
+
+/**
+ * Works out the container from the bytes themselves. A relay may label its
+ * output however it likes, and an <audio> element with the wrong MIME type
+ * simply refuses to play, so the stream is trusted over the label.
+ */
+function sniffAudio(bytes) {
+  if (startsWith(bytes, 'RIFF') && startsWith(bytes, 'WAVE', 8)) return 'audio/wav';
+  if (startsWith(bytes, 'OggS')) return 'audio/ogg';
+  if (startsWith(bytes, 'fLaC')) return 'audio/flac';
+  if (startsWith(bytes, 'ID3')) return 'audio/mpeg';
+  // MPEG frame sync: eleven set bits.
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) return 'audio/mpeg';
+  return null;
+}
+
+/** Sample rate named by a format string such as "riff-24khz-16bit-mono-pcm". */
+function rateFromFormat(format, fallback) {
+  const match = /(\d+)\s*khz/i.exec(format);
+  return match ? Number(match[1]) * 1000 : fallback;
+}
+
+/** Wraps signed 16-bit mono samples in a WAV header so <audio> can play them. */
+function wavFromPcm(bytes, sampleRate) {
+  const header = new DataView(new ArrayBuffer(44));
+  const ascii = (offset, text) => {
+    for (let i = 0; i < text.length; i++) header.setUint8(offset + i, text.charCodeAt(i));
+  };
+  ascii(0, 'RIFF');
+  header.setUint32(4, 36 + bytes.length, true);
+  ascii(8, 'WAVEfmt ');
+  header.setUint32(16, 16, true);
+  header.setUint16(20, 1, true);
+  header.setUint16(22, 1, true);
+  header.setUint32(24, sampleRate, true);
+  header.setUint32(28, sampleRate * 2, true);
+  header.setUint16(32, 2, true);
+  header.setUint16(34, 16, true);
+  ascii(36, 'data');
+  header.setUint32(40, bytes.length, true);
+  return new Uint8Array([...new Uint8Array(header.buffer), ...bytes]);
 }
 
 function escapeXml(text) {
@@ -103,6 +153,7 @@ export class EdgeTts {
     rate = '+0%',
     pitch = '+0Hz',
     volume = '+0%',
+    pcmRate = DEFAULT_PCM_RATE,
   }) {
     this.voice = voice;
     this.endpoint = endpoint;
@@ -111,7 +162,29 @@ export class EdgeTts {
     this.rate = rate;
     this.pitch = pitch;
     this.volume = volume;
-    this.mime = FORMAT_MIME[format] ?? 'audio/mpeg';
+    this.pcmRate = Number(pcmRate) || DEFAULT_PCM_RATE;
+  }
+
+  /** Turns the collected frames into something the player can actually play. */
+  #toBlob(chunks) {
+    const total = chunks.reduce((n, c) => n + c.length, 0);
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    const sniffed = sniffAudio(bytes);
+    if (sniffed) return new Blob([bytes], { type: sniffed });
+
+    // Nothing recognisable at the front: headerless PCM is the one case worth
+    // rescuing, since a relay can legitimately stream raw samples.
+    if (/pcm|raw/i.test(this.format)) {
+      const rate = rateFromFormat(this.format, this.pcmRate);
+      return new Blob([wavFromPcm(bytes, rate)], { type: 'audio/wav' });
+    }
+    return new Blob([bytes], { type: FORMAT_MIME[this.format] ?? 'audio/mpeg' });
   }
 
   async #url() {
@@ -189,7 +262,7 @@ export class EdgeTts {
               finish(new Error('Edge TTS trả về phiên không có audio.'));
               return;
             }
-            finish(null, new Blob(chunks, { type: this.mime }));
+            finish(null, this.#toBlob(chunks));
           }
           return;
         }
@@ -205,7 +278,7 @@ export class EdgeTts {
         );
 
       socket.onclose = (event) => {
-        if (chunks.length) finish(null, new Blob(chunks, { type: this.mime }));
+        if (chunks.length) finish(null, this.#toBlob(chunks));
         else finish(new Error(`Edge TTS đóng kết nối (mã ${event.code}).`));
       };
     });

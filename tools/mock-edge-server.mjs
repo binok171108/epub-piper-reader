@@ -142,13 +142,18 @@ export function startMockEdgeServer(port) {
       report.problems.push(...problems.map((p) => `${entry.voice ?? '?'}: ${p}`));
 
       // One second of audio per 15 characters, delivered in two chunks so the
-      // client's concatenation is exercised.
-      const audio = wav(Math.max(0.4, text.length / 15));
+      // client's concatenation is exercised. A format naming pcm without riff
+      // gets raw samples, the way a relay streaming PCM would send them.
+      const full = wav(Math.max(0.4, text.length / 15));
+      const audio = /pcm/i.test(format ?? '') && !/riff/i.test(format ?? '')
+        ? full.subarray(44)
+        : full;
       socket.send(
         `X-RequestId:${requestId}\r\nContent-Type:application/json; charset=utf-8\r\nPath:turn.start\r\n\r\n{}`,
       );
-      socket.send(audioFrame(requestId, audio.subarray(0, 44 + 2000)));
-      socket.send(audioFrame(requestId, audio.subarray(44 + 2000)));
+      const split = Math.min(2044, audio.length);
+      socket.send(audioFrame(requestId, audio.subarray(0, split)));
+      socket.send(audioFrame(requestId, audio.subarray(split)));
       socket.send(
         `X-RequestId:${requestId}\r\nContent-Type:application/json; charset=utf-8\r\nPath:turn.end\r\n\r\n{}`,
       );

@@ -133,6 +133,25 @@ tốc độ phát.
   `audio-24khz-48kbitrate-mono-mp3`). Định dạng `riff-24khz-16bit-mono-pcm` dùng
   cho relay/mock; không rõ endpoint thật có nhận không.
 
+### Dùng relay
+
+Tất cả tham số ở trên là của **trang web**, không phải của URL WebSocket. Đặt
+nguyên URL relay vào `edge_endpoint`, còn lại để riêng:
+
+```
+https://<trang>/?edge_endpoint=wss://relay:8585/edge/v1&edge_format=pcm&edge_gec_version=v1.3.0
+```
+
+Query có sẵn trong `edge_endpoint` vẫn được giữ nguyên khi client nối thêm
+`TrustedClientToken` / `Sec-MS-GEC` / `ConnectionId`.
+
+Client **tự nhận diện định dạng audio từ chính bytes trả về** (RIFF/WAVE, OggS,
+fLaC, ID3, MPEG frame sync), nên nhãn `edge_format` sai cũng không làm hỏng phát
+nhạc. Riêng PCM thô không có header thì không đoán được: khi bytes không khớp
+container nào **và** `edge_format` có chữ `pcm`/`raw`, client tự bọc WAV header,
+coi là 16-bit mono. Sample rate lấy từ tên format (`...24khz...`), không có thì
+mặc định 24000 — đổi bằng `?edge_pcm_rate=16000`.
+
 ## Giới hạn đã biết
 
 - **Chỉ chạy 1 luồng.** `SharedArrayBuffer` cần COOP/COEP, mà GitHub Pages không
@@ -155,7 +174,7 @@ tốc độ phát.
 npm test
 ```
 
-Chạy 34 kiểm tra trên Chromium headless: mở EPUB, tách câu, ảnh, mục lục, nhớ vị
+Chạy 35 kiểm tra trên Chromium headless: mở EPUB, tách câu, ảnh, mục lục, nhớ vị
 trí, khởi động cả hai khối WASM, tổng hợp giọng end-to-end, tự chuyển câu/chương,
 **tải lại được khi đã ngắt mạng**, và toàn bộ giao thức Edge TTS.
 
