@@ -29,7 +29,11 @@ jobs:
       # runtime out of node_modules into public/vendor/.
       - run: npm ci --omit=dev
 
+      # enablement turns Pages on through the API, so nobody has to set
+      # Settings -> Pages -> Source by hand first.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
