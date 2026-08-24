@@ -401,6 +401,8 @@ const player = {
   },
 
   async start(from = null) {
+    // Pressing play on a cover should move on to the first readable chapter.
+    if (!sentences.length && !showReadableChapter(chapterIndex + 1)) return;
     if (!sentences.length) return;
     if (from != null) this.index = from;
     this.unlock();
@@ -539,12 +541,29 @@ function showChapter(index, sentenceIndex = 0) {
   player.index = sentenceIndex;
   window.scrollTo(0, 0);
   highlight(sentenceIndex, sentenceIndex > 0);
-  if (!sentences.length) $('status').textContent = 'Phần này không có văn bản để đọc.';
+  // Clearing matters when an earlier, text-less document set this first.
+  $('status').textContent = sentences.length ? '' : 'Phần này không có văn bản để đọc.';
 }
 
 /** A new chapter is a safe moment to try a larger request again. */
 function relaxChunkSize() {
   runtime.chars = Math.min(settings.chunkChars, Math.round(runtime.chars * 1.5));
+}
+
+/**
+ * Renders the first chapter at or after `index` that actually has text.
+ *
+ * Covers, title pages and jackets are spine documents with nothing to read;
+ * stopping on one leaves the reader announcing that the book has no text when
+ * the very next document is chapter one.
+ */
+function showReadableChapter(index, sentenceIndex = 0, step = 1) {
+  const total = book.chapters.length;
+  for (let i = index, tries = 0; i >= 0 && i < total && tries < 60; i += step, tries++) {
+    showChapter(i, i === index ? sentenceIndex : 0);
+    if (sentences.length) return true;
+  }
+  return false;
 }
 
 function changeChapter(delta, autoplay) {
@@ -554,7 +573,10 @@ function changeChapter(delta, autoplay) {
     return;
   }
   relaxChunkSize();
-  showChapter(next, 0);
+  if (!showReadableChapter(next, 0, delta > 0 ? 1 : -1)) {
+    toast(delta > 0 ? 'Đã hết phần có văn bản.' : 'Đây là phần đầu tiên.');
+    return;
+  }
   renderToc();
   if (autoplay) player.start(0);
 }
@@ -597,7 +619,7 @@ async function openFile(file) {
     $('welcome-hint').textContent = '';
     renderToc();
     runtime.chars = settings.chunkChars;
-    showChapter(0, 0);
+    if (!showReadableChapter(0)) toast('Không tìm thấy phần nào có văn bản.', 6000);
   } catch (error) {
     $('welcome-hint').textContent = '';
     toast(`Không mở được EPUB: ${error.message}`, 6000);

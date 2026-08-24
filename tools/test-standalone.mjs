@@ -43,6 +43,29 @@ try {
   check('tách câu', sentences === 7, `${sentences} câu`);
   check('ảnh hiển thị', (await page.$eval('#chapter img', (el) => el.naturalWidth)) > 0);
 
+  // A Calibre-style book whose first spine document is a cover: the reader has
+  // to move past it instead of announcing that the book has no text.
+  const coverPage = await browser.newPage();
+  coverPage.on('pageerror', (error) => errors.push(String(error)));
+  await coverPage.goto(fileUrl);
+  await coverPage.setInputFiles(
+    '#file-input',
+    fileURLToPath(new URL('../test-book-cover.epub', import.meta.url)),
+  );
+  await coverPage.waitForSelector('.sent[data-i]', { timeout: 20000 });
+  const coverState = await coverPage.evaluate(() => ({
+    sentences: document.querySelectorAll('.sent[data-i]').length,
+    status: document.getElementById('status').textContent,
+    heading: document.querySelector('#chapter h1')?.textContent ?? null,
+  }));
+  check(
+    'bỏ qua trang bìa, mở thẳng chương có chữ',
+    coverState.sentences > 0 && coverState.heading === 'Chương một',
+    JSON.stringify(coverState),
+  );
+  check('không còn báo "không có văn bản"', coverState.status === '', coverState.status);
+  await coverPage.close();
+
   await page.locator('#btn-toc').click();
   const toc = await page.$$eval('#toc-list button', (nodes) => nodes.map((n) => n.textContent));
   check('mục lục', JSON.stringify(toc) === JSON.stringify(['Chương một', 'Chương hai']), toc.join(' | '));

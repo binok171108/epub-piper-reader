@@ -267,6 +267,9 @@ mặc định 24000 — đổi bằng `?edge_pcm_rate=16000`.
   chậm hơn nhiều).
 - **Tách câu theo luật**, không phải mô hình: có xử lý số thập phân và một số từ
   viết tắt phổ biến (`TS.`, `Mr.`, `e.g`…), nhưng vẫn sẽ sai ở vài trường hợp lạ.
+- **Trang bìa, trang bìa lót không có chữ sẽ bị bỏ qua.** Nhiều sách (nhất là
+  bản Calibre xuất ra) có spine bắt đầu bằng vài tài liệu chỉ chứa ảnh; reader
+  tự nhảy tới phần đầu tiên thật sự có văn bản, thay vì dừng ở đó.
 - **CSS của nhà xuất bản bị bỏ.** Sách được render bằng typography riêng của app.
   Sách layout cố định (fixed-layout, truyện tranh) sẽ không hiển thị đúng ý đồ.
 

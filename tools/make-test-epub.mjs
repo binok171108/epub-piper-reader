@@ -1,5 +1,5 @@
 // Builds a small EPUB 3 file used by the smoke test.
-import { zipSync, strToU8 } from 'fflate';
+import { zipSync, strToU8, strFromU8 } from 'fflate';
 import { Buffer } from 'node:buffer';
 import { writeFileSync } from 'node:fs';
 
@@ -63,3 +63,25 @@ const files = {
 
 writeFileSync(new URL('../test-book.epub', import.meta.url), zipSync(files, { level: 0 }));
 console.log('Wrote test-book.epub');
+
+/*
+ * A second fixture shaped like the books Calibre produces: the first spine
+ * document is a cover with no text at all, which used to leave the reader
+ * sitting on it reporting that there was nothing to read.
+ */
+const withCover = {
+  ...files,
+  'OEBPS/cover.xhtml': strToU8(`<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Bìa</title></head>
+<body><div><img src="img/pic.png" alt=""/></div></body></html>`),
+  'OEBPS/book.opf': strToU8(
+    strFromU8(files['OEBPS/book.opf'])
+      .replace(
+        '<item id="nav"',
+        '<item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>\n    <item id="nav"',
+      )
+      .replace('<spine><itemref idref="c1"/>', '<spine><itemref idref="cover"/><itemref idref="c1"/>'),
+  ),
+};
+writeFileSync(new URL('../test-book-cover.epub', import.meta.url), zipSync(withCover, { level: 0 }));
+console.log('Wrote test-book-cover.epub');

@@ -217,7 +217,9 @@ async function loadBook(id) {
   runtime.chars = settings.chunkChars;
   reader.chunkChars = runtime.chars;
   const position = (await getPosition(id)) ?? { chapter: 0, sentence: 0 };
-  showChapter(position.chapter, position.sentence);
+  if (!showReadableChapter(position.chapter, position.sentence)) {
+    toast('Không tìm thấy phần nào có văn bản.', 6000);
+  }
   refreshStorageInfo();
 }
 
@@ -258,9 +260,8 @@ function showChapter(index, sentenceIndex = 0) {
   }
   window.scrollTo(0, 0);
   if (sentenceIndex > 0) highlight(sentenceIndex, true);
-  if (!sentences.length) {
-    els.status.textContent = 'Phần này không có văn bản để đọc.';
-  }
+  // Clearing matters when an earlier, text-less document set this first.
+  els.status.textContent = sentences.length ? '' : 'Phần này không có văn bản để đọc.';
   persistPosition(true);
 }
 
@@ -287,6 +288,22 @@ function persistPosition(immediate = false) {
   else saveTimer = setTimeout(write, 800);
 }
 
+/**
+ * Renders the first chapter at or after `index` that actually has text.
+ *
+ * Covers, title pages and jackets are spine documents with nothing to read;
+ * stopping on one leaves the reader announcing that the book has no text when
+ * the very next document is chapter one.
+ */
+function showReadableChapter(index, sentenceIndex = 0, step = 1) {
+  const total = book.chapters.length;
+  for (let i = index, tries = 0; i >= 0 && i < total && tries < 60; i += step, tries++) {
+    showChapter(i, i === index ? sentenceIndex : 0);
+    if (sentenceCount) return true;
+  }
+  return false;
+}
+
 /** A new chapter is a safe moment to try a larger request again. */
 function relaxChunkSize() {
   runtime.chars = Math.min(settings.chunkChars, Math.round(runtime.chars * 1.5));
@@ -300,7 +317,10 @@ function changeChapter(delta, autoplay) {
     toast(delta > 0 ? 'Đã hết sách.' : 'Đây là phần đầu tiên.');
     return;
   }
-  showChapter(next, 0);
+  if (!showReadableChapter(next, 0, delta > 0 ? 1 : -1)) {
+    toast(delta > 0 ? 'Đã hết phần có văn bản.' : 'Đây là phần đầu tiên.');
+    return;
+  }
   if (autoplay) startPlayback();
 }
 
@@ -363,6 +383,9 @@ function ensureVoice() {
 
 async function startPlayback() {
   if (!book) return;
+  // Pressing play on a cover should move on to the first readable chapter.
+  if (!sentenceCount) showReadableChapter(chapterIndex + 1);
+  if (!sentenceCount) return;
   reader.unlock(); // must happen inside the tap handler on iOS
   setupMediaSession();
   els.status.textContent = 'Đang chuẩn bị…';
