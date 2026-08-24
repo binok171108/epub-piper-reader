@@ -178,6 +178,32 @@ try {
   await plainPage.close();
   await plain.close();
 
+  // An endpoint that carries its own query (?mode=stream) must reach the server
+  // exactly as written - bare mode may not strip or add anything.
+  const queryPort = EDGE_PORT + 3;
+  const query = await startMockEdgeServer(queryPort);
+  const queryPage = await browser.newPage();
+  queryPage.on('pageerror', (error) => errors.push(String(error)));
+  await queryPage.goto(
+    `${fileUrl}?edge_endpoint=${encodeURIComponent(`ws://localhost:${queryPort}/vieneu/v1?mode=stream`)}` +
+      '&engine=edge&edge_voice=vi-VN-HoaiMyNeural',
+  );
+  await queryPage.setInputFiles('#file-input', epub);
+  await queryPage.waitForSelector('.sent[data-i]', { timeout: 20000 });
+  await queryPage.locator('#btn-play').click();
+  for (let i = 0; i < 60 && !query.report.requests.length; i++) {
+    await queryPage.waitForTimeout(250);
+  }
+  const queried = query.report.requests[0];
+  check(
+    'giữ nguyên query có sẵn của endpoint',
+    queried?.rawUrl === '/vieneu/v1?mode=stream',
+    String(queried?.rawUrl),
+  );
+  await queryPage.locator('#btn-play').click();
+  await queryPage.close();
+  await query.close();
+
   // A relay that stalls on long input: the reader must shrink its requests and
   // keep going rather than stopping at the timeout.
   const stallPort = EDGE_PORT + 2;

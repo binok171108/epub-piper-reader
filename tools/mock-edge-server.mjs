@@ -14,8 +14,6 @@ import { WebSocketServer } from 'ws';
 const TRUSTED_CLIENT_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
 const SAMPLE_RATE = 24000;
 
-const report = { requests: [], problems: [] };
-
 function expectedGec(now = Date.now()) {
   let ticks = BigInt(Math.floor(now / 1000)) + 11644473600n;
   ticks -= ticks % 300n;
@@ -95,6 +93,9 @@ function metadataFrames(requestId, text, seconds) {
 }
 
 export function startMockEdgeServer(port, { delayMs = 0, metadata = true, maxChars = Infinity } = {}) {
+  // Per instance: a shared report let one server's traffic be read as another's.
+  const report = { requests: [], problems: [] };
+
   const http = createServer((req, res) => {
     if (req.url.startsWith('/__report')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });

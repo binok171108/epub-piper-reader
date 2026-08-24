@@ -634,6 +634,12 @@ function applySettings() {
   $('field-system').hidden = settings.engine !== 'system';
   $('field-edge').hidden = settings.engine !== 'edge';
   $('edge-endpoint').value = settings.endpoint;
+  const preset = $('relay-preset');
+  if (!preset.hidden) {
+    preset.value = (BUILD_DEFAULTS.endpoints ?? []).some((p) => p.url === settings.endpoint)
+      ? settings.endpoint
+      : '';
+  }
   $('edge-voice').value = settings.edgeVoice;
   $('edge-bare').checked = settings.bareWs;
   $('edge-mp3').checked = settings.mp3;
@@ -657,6 +663,37 @@ function applySettings() {
     settings.engine === 'edge'
       ? 'Mỗi câu được gửi tới relay để tổng hợp, nên cần mạng và văn bản có rời khỏi máy.'
       : 'Giọng do iOS tổng hợp ngay trên máy. Không có văn bản nào rời khỏi thiết bị.';
+}
+
+/** Relays baked into this build, offered as a picker. */
+function fillRelayPresets() {
+  const presets = BUILD_DEFAULTS.endpoints ?? [];
+  const select = $('relay-preset');
+  if (presets.length < 2) return; // one relay needs no chooser
+  select.hidden = false;
+  select.replaceChildren();
+  for (const preset of presets) {
+    const option = document.createElement('option');
+    option.value = preset.url;
+    option.textContent = preset.label;
+    select.append(option);
+  }
+  const custom = document.createElement('option');
+  custom.value = '';
+  custom.textContent = 'Tự nhập…';
+  select.append(custom);
+  select.value = presets.some((p) => p.url === settings.endpoint) ? settings.endpoint : '';
+
+  select.addEventListener('change', () => {
+    if (!select.value) return; // "Tự nhập" leaves the field alone
+    settings.endpoint = select.value;
+    store.set('endpoint', settings.endpoint);
+    engines.edge.client = null;
+    engines.edge.reset();
+    player.stop();
+    applySettings();
+    toast(`Đã chuyển sang ${select.selectedOptions[0].textContent}.`);
+  });
 }
 
 async function fillSystemVoices() {
@@ -848,5 +885,6 @@ if (params.get('edge_timeout_per_char')) {
 }
 if (params.get('engine')) settings.engine = params.get('engine');
 
+fillRelayPresets();
 applySettings();
 fillSystemVoices().then(applySettings);

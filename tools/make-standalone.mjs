@@ -31,16 +31,37 @@ async function read(...parts) {
   return readFile(join(root, ...parts), 'utf8');
 }
 
-/** `--endpoint=wss://... --voice=vi-VN-HoaiMyNeural --engine=edge` */
+/** Names a relay by what distinguishes it: "vieneu (8686)". */
+function labelFor(url) {
+  try {
+    const parsed = new URL(url);
+    const name = parsed.pathname.split('/').filter(Boolean)[0] ?? 'relay';
+    return parsed.port ? `${name} (${parsed.port})` : name;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * `--endpoint=wss://... --voice=vi-VN-HoaiMyNeural --engine=edge`
+ * `--endpoint` may be repeated; the first becomes the default and all of them
+ * appear as presets in the settings panel.
+ */
 function buildDefaults() {
   const defaults = {};
+  const endpoints = [];
   for (const arg of process.argv.slice(2)) {
     const match = /^--(endpoint|voice|engine)=(.*)$/.exec(arg);
-    if (match) defaults[match[1]] = match[2];
-    else throw new Error(`Tham số không hiểu: ${arg}`);
+    if (!match) throw new Error(`Tham số không hiểu: ${arg}`);
+    if (match[1] === 'endpoint') endpoints.push(match[2]);
+    else defaults[match[1]] = match[2];
   }
-  // Baking in a relay address only makes sense if that engine is selected.
-  if (defaults.endpoint && !defaults.engine) defaults.engine = 'edge';
+  if (endpoints.length) {
+    defaults.endpoint = endpoints[0];
+    defaults.endpoints = endpoints.map((url) => ({ url, label: labelFor(url) }));
+    // Baking in a relay address only makes sense if that engine is selected.
+    if (!defaults.engine) defaults.engine = 'edge';
+  }
   return defaults;
 }
 

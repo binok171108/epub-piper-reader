@@ -103,6 +103,18 @@ Nhúng sẵn địa chỉ relay vào bản build, để trên điện thoại kh
 npm run standalone -- --endpoint=wss://relay:8585/edge/v1 --voice=vi-VN-HoaiMyNeural
 ```
 
+`--endpoint` lặp lại được: cái đầu là mặc định, tất cả hiện thành một danh sách
+chọn trong Cài đặt.
+
+```bash
+npm run standalone -- \
+  --endpoint='wss://relay:8686/vieneu/v1?mode=stream' \
+  --endpoint=wss://relay:8585/edge/v1
+```
+
+Query có sẵn trong endpoint (`?mode=stream`) được giữ nguyên tới máy chủ khi bật
+*URL thuần* — client không thêm cũng không bớt gì.
+
 Bản commit trong repo để trống mấy giá trị này — đừng đưa địa chỉ nội bộ của bạn
 vào một repo public.
 
