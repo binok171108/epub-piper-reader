@@ -18,7 +18,8 @@ const check = (name, ok, detail = '') => {
 const fileUrl = pathToFileURL(fileURLToPath(new URL('../public/epub-reader-standalone.html', import.meta.url))).href;
 const epub = fileURLToPath(new URL('../test-book.epub', import.meta.url));
 
-const edge = await startMockEdgeServer(EDGE_PORT);
+// A deliberately slow relay: buffering only matters when synthesis takes time.
+const edge = await startMockEdgeServer(EDGE_PORT, { delayMs: 700 });
 const browser = await chromium.launch({
   executablePath: CHROME,
   args: ['--autoplay-policy=no-user-gesture-required', '--mute-audio'],
@@ -57,6 +58,11 @@ try {
   check('chuyển sang Edge thì hiện ô relay', await page.locator('#field-edge').isVisible());
   await page.locator('#panel-settings [data-close]').click();
 
+  await page.locator('#btn-settings').click();
+  await page.locator('#buffer-range').fill('3');
+  await page.locator('#buffer-range').dispatchEvent('input');
+  await page.locator('#panel-settings [data-close]').click();
+
   const before = edge.report.requests.length;
   await page.locator('#btn-play').click();
   const duration = await page
@@ -72,6 +78,11 @@ try {
     .catch(() => 0);
   check('Edge relay phát được audio từ file://', duration > 0.2, `${Number(duration).toFixed(2)}s`);
 
+  // Buffering: the first sentence must not start until the buffer is filled,
+  // so by then the relay has already been asked for three sentences.
+  const primed = edge.report.requests.length - before;
+  check('đệm đủ 3 câu trước khi phát câu đầu', primed >= 3, `${primed} yêu cầu`);
+
   const advanced = await page
     .waitForFunction(() => Number(document.querySelector('.sent--active')?.dataset.i ?? -1) >= 2, null, {
       timeout: 60000,
@@ -79,6 +90,16 @@ try {
     .then(() => true)
     .catch(() => false);
   check('đọc liên tiếp nhiều câu', advanced);
+
+  // The old cache claimed a slot with null, which read as "not cached" and made
+  // every sentence be synthesised twice - once wasted, once waited on.
+  const texts = edge.report.requests.map((r) => r.decoded).filter(Boolean);
+  const duplicates = texts.filter((t, i) => texts.indexOf(t) !== i);
+  check(
+    'không câu nào bị tổng hợp hai lần',
+    duplicates.length === 0,
+    duplicates.length ? `trùng: ${JSON.stringify(duplicates.slice(0, 3))}` : `${texts.length} yêu cầu, không trùng`,
+  );
 
   const request = edge.report.requests[before];
   check('gửi đúng giọng', request?.voice === 'vi-VN-HoaiMyNeural', String(request?.voice));

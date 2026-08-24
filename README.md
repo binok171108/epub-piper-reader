@@ -115,6 +115,11 @@ epub-reader-standalone.html?engine=edge&edge_endpoint=wss://relay:8585/edge/v1&e
 Lưu ý cho người viết relay: trang mở từ `file://` gửi **`Origin: null`**. Relay
 không được từ chối origin đó.
 
+**Đệm trước khi phát.** Với relay chậm, mỗi câu chờ một vòng round-trip thì nghe
+sẽ giật. Cài đặt → *Đệm trước khi phát* (mặc định 3 câu): dựng sẵn ngần đó câu rồi
+mới bắt đầu đọc, và luôn giữ đủ ngần đó phía trước. Cao hơn thì vào đầu chậm hơn
+nhưng giữa các câu mượt hơn.
+
 ## Dùng trên iPhone
 
 1. Mở URL Pages bằng **Safari** (không phải Chrome iOS).
@@ -228,7 +233,7 @@ mặc định 24000 — đổi bằng `?edge_pcm_rate=16000`.
 npm test
 ```
 
-Chạy 37 kiểm tra cho bản PWA cộng 13 kiểm tra cho bản một tệp (mở thật từ
+Chạy 37 kiểm tra cho bản PWA cộng 15 kiểm tra cho bản một tệp (mở thật từ
 `file://`), trên Chromium headless: mở EPUB, tách câu, ảnh, mục lục, nhớ vị
 trí, khởi động cả hai khối WASM, tổng hợp giọng end-to-end, tự chuyển câu/chương,
 **tải lại được khi đã ngắt mạng**, và toàn bộ giao thức Edge TTS.

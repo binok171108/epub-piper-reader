@@ -70,7 +70,7 @@ function audioFrame(requestId, payload) {
   return Buffer.concat([length, header, payload]);
 }
 
-export function startMockEdgeServer(port) {
+export function startMockEdgeServer(port, { delayMs = 0 } = {}) {
   const http = createServer((req, res) => {
     if (req.url.startsWith('/__report')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -166,11 +166,16 @@ export function startMockEdgeServer(port) {
         `X-RequestId:${requestId}\r\nContent-Type:application/json; charset=utf-8\r\nPath:turn.start\r\n\r\n{}`,
       );
       const split = Math.min(2044, audio.length);
-      socket.send(audioFrame(requestId, audio.subarray(0, split)));
-      socket.send(audioFrame(requestId, audio.subarray(split)));
-      socket.send(
-        `X-RequestId:${requestId}\r\nContent-Type:application/json; charset=utf-8\r\nPath:turn.end\r\n\r\n{}`,
-      );
+      // delayMs stands in for a slow relay, which is what makes buffering
+      // behaviour observable in a test.
+      setTimeout(() => {
+        if (socket.readyState !== socket.OPEN) return;
+        socket.send(audioFrame(requestId, audio.subarray(0, split)));
+        socket.send(audioFrame(requestId, audio.subarray(split)));
+        socket.send(
+          `X-RequestId:${requestId}\r\nContent-Type:application/json; charset=utf-8\r\nPath:turn.end\r\n\r\n{}`,
+        );
+      }, delayMs);
     });
   });
 

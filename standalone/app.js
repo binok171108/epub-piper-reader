@@ -43,6 +43,7 @@ const settings = {
   edgeVoice: store.get('edgeVoice', BUILD_DEFAULTS.voice ?? 'vi-VN-HoaiMyNeural'),
   bareWs: store.get('bareWs', '1') === '1',
   mp3: store.get('mp3', '1') === '1',
+  buffer: Number(store.get('buffer', 3)),
   rate: Number(store.get('rate', 1)),
   autoScroll: store.get('autoScroll', '1') === '1',
   fontSize: Number(store.get('fontSize', 18)),
@@ -170,7 +171,10 @@ class EdgeEngine {
   constructor(audio) {
     this.audio = audio;
     this.client = null;
-    this.cache = new Map();
+    /** index -> Promise<objectURL>. Holding the promise, not the finished URL,
+     *  is what stops a sentence already in flight from being requested twice. */
+    this.pending = new Map();
+    this.urls = new Map();
     this.generation = 0;
   }
 
@@ -186,40 +190,87 @@ class EdgeEngine {
   }
 
   reset() {
-    for (const url of this.cache.values()) URL.revokeObjectURL(url);
-    this.cache.clear();
     this.generation++;
+    for (const url of this.urls.values()) URL.revokeObjectURL(url);
+    this.urls.clear();
+    this.pending.clear();
   }
 
-  /** Renders ahead so the next sentence is usually ready in time. */
-  prefetch(index) {
-    for (let i = index; i <= index + 2; i++) {
-      if (i >= sentences.length || this.cache.has(i)) continue;
-      this.cache.set(i, null); // claim the slot
-      const generation = this.generation;
-      this.client
-        .synthesize(sentences[i])
-        .then((blob) => {
-          if (generation === this.generation) this.cache.set(i, URL.createObjectURL(blob));
-          else this.cache.delete(i);
-        })
-        .catch(() => this.cache.delete(i));
+  /** Starts (or joins) the synthesis of one sentence. */
+  render(index) {
+    if (index < 0 || index >= sentences.length) return null;
+    const existing = this.pending.get(index);
+    if (existing) return existing;
+
+    const generation = this.generation;
+    const promise = this.client.synthesize(sentences[index]).then((blob) => {
+      if (generation !== this.generation) throw new Error('cancelled');
+      const url = URL.createObjectURL(blob);
+      this.urls.set(index, url);
+      return url;
+    });
+    // A failed sentence must not stay cached, or it can never be retried.
+    promise.catch(() => {
+      if (this.pending.get(index) === promise) this.pending.delete(index);
+    });
+    this.pending.set(index, promise);
+    return promise;
+  }
+
+  /** Keeps `settings.buffer` sentences in flight or ready from `from` onwards. */
+  fill(from) {
+    for (let i = from; i < from + settings.buffer; i++) this.render(i);
+  }
+
+  /** Drops audio well behind the cursor so memory stays bounded. */
+  trim(index) {
+    for (const [i, url] of this.urls) {
+      if (i < index - 1 || i > index + settings.buffer + 1) {
+        URL.revokeObjectURL(url);
+        this.urls.delete(i);
+        this.pending.delete(i);
+      }
     }
+  }
+
+  /**
+   * Fills the buffer before the first sentence plays. Without this the reader
+   * starts the moment sentence one is ready and then stalls on every sentence
+   * after it, because each round trip only begins as the previous one ends.
+   */
+  async prime(from, onProgress) {
+    if (!this.client) this.configure();
+    const wanted = [];
+    for (let i = from; i < Math.min(from + settings.buffer, sentences.length); i++) {
+      wanted.push(this.render(i));
+    }
+    if (!wanted.length) return;
+    onProgress?.(0, wanted.length);
+
+    // Fail fast: if the relay cannot produce even the first sentence there is
+    // no point waiting out a timeout on each of the others.
+    await wanted[0];
+    let done = 1;
+    onProgress?.(done, wanted.length);
+
+    await Promise.all(
+      wanted.slice(1).map((promise) =>
+        promise.then(
+          () => onProgress?.(++done, wanted.length),
+          () => onProgress?.(++done, wanted.length),
+        ),
+      ),
+    );
   }
 
   async speak(index, { rate, signal }) {
     if (!this.client) this.configure();
-    this.prefetch(index);
+    this.fill(index);
 
-    let url = this.cache.get(index);
-    if (!url) {
-      const generation = this.generation;
-      const blob = await this.client.synthesize(sentences[index], { signal });
-      if (generation !== this.generation) throw new Error('cancelled');
-      url = URL.createObjectURL(blob);
-      this.cache.set(index, url);
-    }
-    this.prefetch(index + 1);
+    const url = await this.render(index);
+    if (signal?.aborted) throw new Error('cancelled');
+    this.trim(index);
+    this.fill(index + 1);
 
     return new Promise((resolve, reject) => {
       const cleanup = () => {
@@ -252,7 +303,6 @@ class EdgeEngine {
 
   stop() {
     this.audio.pause();
-    this.generation++;
   }
 }
 
@@ -283,15 +333,19 @@ const player = {
     this.playing = true;
     this.setButton();
 
-    if (settings.engine === 'system') await engines.system.ready();
-    else {
+    if (settings.engine === 'system') {
+      await engines.system.ready();
+    } else {
       try {
-        engines.edge.configure();
+        await engines.edge.prime(this.index, (done, total) => {
+          $('status').textContent = `Đang đệm ${done}/${total} câu…`;
+        });
       } catch (error) {
         this.stop();
-        toast(error.message, 5000);
+        toast(error.message, 6000);
         return;
       }
+      if (!this.playing) return; // paused while buffering
     }
     this.loop();
   },
@@ -448,6 +502,8 @@ function applySettings() {
   $('edge-voice').value = settings.edgeVoice;
   $('edge-bare').checked = settings.bareWs;
   $('edge-mp3').checked = settings.mp3;
+  $('buffer-range').value = String(settings.buffer);
+  $('buffer-value').textContent = `${settings.buffer} câu`;
   $('rate-range').value = String(settings.rate);
   $('rate-value').textContent = `${settings.rate.toFixed(2)}×`;
   $('btn-rate').textContent = `${settings.rate.toFixed(1)}×`;
@@ -559,6 +615,12 @@ for (const [id, key, prop] of [
     applySettings();
   });
 }
+
+$('buffer-range').addEventListener('input', () => {
+  settings.buffer = Number($('buffer-range').value);
+  store.set('buffer', settings.buffer);
+  applySettings();
+});
 
 $('system-voice').addEventListener('change', () => {
   settings.systemVoice = $('system-voice').value;

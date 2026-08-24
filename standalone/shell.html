@@ -93,6 +93,15 @@
         <input type="checkbox" id="edge-mp3" checked>
         <span>Yêu cầu MP3 (bỏ chọn để xin PCM)</span>
       </label>
+      <label class="field" style="margin-top:18px">
+        <span>Đệm trước khi phát <b id="buffer-value">3 câu</b></span>
+        <input type="range" id="buffer-range" min="1" max="6" step="1" value="3">
+        <span class="hint">
+          Dựng sẵn ngần này câu rồi mới bắt đầu đọc, và luôn giữ đủ ngần đó phía
+          trước. Cao hơn thì vào đầu chậm hơn nhưng giữa các câu mượt hơn.
+        </span>
+      </label>
+
       <p class="hint">
         Văn bản được gửi tới relay để tổng hợp. Relay phải có certificate hợp lệ,
         nếu không trình duyệt sẽ từ chối kết nối.
