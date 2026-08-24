@@ -94,7 +94,7 @@ function metadataFrames(requestId, text, seconds) {
   });
 }
 
-export function startMockEdgeServer(port, { delayMs = 0, metadata = true } = {}) {
+export function startMockEdgeServer(port, { delayMs = 0, metadata = true, maxChars = Infinity } = {}) {
   const http = createServer((req, res) => {
     if (req.url.startsWith('/__report')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -190,6 +190,9 @@ export function startMockEdgeServer(port, { delayMs = 0, metadata = true } = {})
       socket.send(
         `X-RequestId:${requestId}\r\nContent-Type:application/json; charset=utf-8\r\nPath:turn.start\r\n\r\n{}`,
       );
+      // A relay that cannot cope with long input: it opens the turn and then
+      // never delivers, which is what the client has to recover from.
+      if (text.length > maxChars) return;
       const split = Math.min(2044, audio.length);
       // delayMs stands in for a slow relay, which is what makes buffering
       // behaviour observable in a test.

@@ -30,6 +30,9 @@ import {
 
 const $ = (id) => document.getElementById(id);
 
+/** Shrinking below roughly one sentence per request gains nothing. */
+const MIN_CHUNK_CHARS = 100;
+
 const els = {
   body: document.body,
   title: $('book-title'),
@@ -53,6 +56,7 @@ const els = {
   chunkRange: $('chunk-range'),
   chunkValue: $('chunk-value'),
   statLine: $('stat-line'),
+  relayBoundary: $('relay-boundary'),
   edgeName: $('edge-name'),
   addEdge: $('btn-add-edge'),
   modelField: $('model-field'),
@@ -76,6 +80,7 @@ const settings = {
   lengthScale: Number(localStorage.getItem('lengthScale') || 1),
   fontSize: Number(localStorage.getItem('fontSize') || 18),
   chunkChars: Number(localStorage.getItem('chunkChars') || 700),
+  wordBoundary: localStorage.getItem('wordBoundary') !== '0',
   autoScroll: localStorage.getItem('autoScroll') !== '0',
 };
 
@@ -317,7 +322,7 @@ function ensureVoice() {
 
   reader.lengthScale = settings.lengthScale === 1 ? null : settings.lengthScale;
   voiceLoading = reader
-    .setVoice(voice, modelUrls(voice), edgeOptions())
+    .setVoice(voice, modelUrls(voice), { ...edgeOptions(), wordBoundary: settings.wordBoundary })
     .then(() => {
       loadedVoiceId = voice.id;
       els.status.textContent = '';
@@ -400,6 +405,7 @@ function applySettings() {
   reader.chunkChars = settings.chunkChars;
   els.relayEndpoint.value = localStorage.getItem('relayEndpoint') ?? '';
   els.relayBare.checked = localStorage.getItem('relayBare') !== '0';
+  els.relayBoundary.checked = settings.wordBoundary;
   document.documentElement.style.setProperty('--reader-size', `${settings.fontSize}px`);
   els.rateRange.value = String(settings.rate);
   els.rateValue.textContent = `${settings.rate.toFixed(2)}×`;
@@ -446,7 +452,24 @@ reader.addEventListener('progress', (event) => {
   els.status.textContent = `Đang tải ${what}: ${formatBytes(loaded)} / ${formatBytes(total)}`;
 });
 
-reader.addEventListener('failed', (event) => toast(event.detail, 6000));
+reader.addEventListener('failed', (event) => {
+  const { message, timedOut } = event.detail;
+  // A request that ran out of time was probably too big for this relay; halve
+  // it and pick up where the reader left off.
+  if (timedOut && settings.chunkChars > MIN_CHUNK_CHARS) {
+    settings.chunkChars = Math.max(MIN_CHUNK_CHARS, Math.round(settings.chunkChars / 2));
+    save('chunkChars', settings.chunkChars);
+    reader.chunkChars = settings.chunkChars;
+    toast(`Relay không kịp — giảm xuống ${settings.chunkChars} ký tự mỗi yêu cầu.`, 5000);
+    const wasPlaying = reader.playing;
+    reader.pause();
+    if (book) showChapter(chapterIndex, reader.index);
+    applySettings();
+    if (wasPlaying) startPlayback();
+    return;
+  }
+  toast(message, 8000);
+});
 reader.addEventListener('chapterend', () => changeChapter(1, true));
 
 els.chapter.addEventListener('click', (event) => {
@@ -514,9 +537,11 @@ els.voiceSelect.addEventListener('change', async () => {
 for (const [el, key, prop] of [
   [els.relayEndpoint, 'relayEndpoint', 'value'],
   [els.relayBare, 'relayBare', 'checked'],
+  [els.relayBoundary, 'wordBoundary', 'checked'],
 ]) {
   el.addEventListener('change', () => {
     save(key, prop === 'checked' ? (el.checked ? '1' : '0') : el.value.trim());
+    if (key === 'wordBoundary') settings.wordBoundary = el.checked;
     loadedVoiceId = null; // reconnect with the new relay on next play
     toast('Đã lưu. Bấm phát để kết nối lại.');
   });

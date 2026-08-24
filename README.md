@@ -135,6 +135,15 @@ Highlight vẫn theo từng câu: client bật `wordBoundaryEnabled` và dùng c
 không chuyển tiếp `Path:audio.metadata` thì client tự ước lượng theo số ký tự —
 lệch chút nhưng vẫn bám được.
 
+**Hạn giờ theo độ dài.** Mỗi yêu cầu được cấp `15s + 40ms mỗi ký tự` (tối đa 3
+phút) — một đoạn 700 ký tự có ~43 giây, thay vì cùng một hạn giờ với một câu.
+Chỉnh bằng `?edge_timeout_base=` và `?edge_timeout_per_char=`.
+
+**Tự thu nhỏ khi quá giờ.** Relay không kịp thì client tự giảm một nửa độ dài
+yêu cầu (đến sàn 100 ký tự) rồi đọc tiếp, thay vì dừng hẳn. Thông báo lỗi cũng
+nói rõ đã nhận được gì trước khi hết giờ — `chưa có turn.start` là relay không
+phản hồi, còn `đã bắt đầu phiên, 0 byte audio` là relay nhận nhưng không dựng nổi.
+
 Cài đặt còn hiện thông lượng lần gọi gần nhất (`… → 48.2s audio (15.5× thời gian
 thực)`). Nhỏ hơn 1× nghĩa là relay không thể theo kịp và phải tăng độ dài yêu cầu.
 

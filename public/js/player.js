@@ -109,7 +109,7 @@ export class Reader extends EventTarget {
         this.#pending.get(data.id)?.reject(new Error(data.message));
         this.#pending.delete(data.id);
       } else if (data.type === 'error') {
-        this.#emit('failed', data.message);
+        this.#emit('failed', { message: data.message });
       } else if (data.type === 'ready') {
         this.#emit('ready', data);
       } else {
@@ -144,7 +144,7 @@ export class Reader extends EventTarget {
       };
       const onFail = (event) => {
         cleanup();
-        reject(new Error(event.detail));
+        reject(new Error(event.detail.message ?? event.detail));
       };
       const cleanup = () => {
         this.removeEventListener('ready', onReady);
@@ -237,7 +237,7 @@ export class Reader extends EventTarget {
     } catch (error) {
       if (generation === this.#generation) {
         this.#failed.add(unit);
-        this.#emit('failed', error.message);
+        this.#emit('failed', { message: error.message, timedOut: Boolean(error.timedOut) });
       }
     } finally {
       this.#inFlight.delete(unit);
@@ -326,7 +326,7 @@ export class Reader extends EventTarget {
     };
     this.audio.src = entry.url;
     this.audio.playbackRate = this.rate;
-    this.audio.play().catch((error) => this.#emit('failed', error.message));
+    this.audio.play().catch((error) => this.#emit('failed', { message: error.message }));
     this.#emit('status', { message: '' });
   }
 

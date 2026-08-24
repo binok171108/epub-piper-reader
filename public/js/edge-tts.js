@@ -19,7 +19,15 @@ const DEFAULT_ENDPOINT =
 /** Sent as Sec-MS-GEC-Version; drifts with Edge releases. */
 const DEFAULT_GEC_VERSION = '1-130.0.2849.68';
 const DEFAULT_FORMAT = 'audio-24khz-48kbitrate-mono-mp3';
-const REQUEST_TIMEOUT_MS = 20000;
+
+/**
+ * A request's budget has to scale with how much text it carries: a paragraph
+ * is fifteen times the work of a sentence, and a fixed timeout sized for one
+ * sentence will cut off every batched request.
+ */
+const TIMEOUT_BASE_MS = 15000;
+const TIMEOUT_PER_CHAR_MS = 40;
+const TIMEOUT_MAX_MS = 180000;
 
 /** Audio container per output format, used only when the bytes say nothing. */
 const FORMAT_MIME = {
@@ -190,6 +198,8 @@ export class EdgeTts {
     pcmRate = DEFAULT_PCM_RATE,
     bareWs = false,
     wordBoundary = true,
+    timeoutBaseMs = TIMEOUT_BASE_MS,
+    timeoutPerCharMs = TIMEOUT_PER_CHAR_MS,
   }) {
     this.voice = voice;
     this.endpoint = endpoint;
@@ -201,6 +211,12 @@ export class EdgeTts {
     this.pcmRate = Number(pcmRate) || DEFAULT_PCM_RATE;
     this.bareWs = Boolean(bareWs);
     this.wordBoundary = Boolean(wordBoundary);
+    this.timeoutBaseMs = Number(timeoutBaseMs) || TIMEOUT_BASE_MS;
+    this.timeoutPerCharMs = Number(timeoutPerCharMs) || TIMEOUT_PER_CHAR_MS;
+  }
+
+  timeoutFor(text) {
+    return Math.min(TIMEOUT_MAX_MS, this.timeoutBaseMs + text.length * this.timeoutPerCharMs);
   }
 
   /** Turns the collected frames into something the player can actually play. */
@@ -250,6 +266,9 @@ export class EdgeTts {
     const requestId = randomId();
     const chunks = [];
     const boundaries = [];
+    /** What actually arrived, so a timeout can say where things stopped. */
+    const seen = { turnStart: false, audioBytes: 0 };
+    const budget = this.timeoutFor(text);
 
     return new Promise((resolve, reject) => {
       const finish = (error, result) => {
@@ -260,10 +279,19 @@ export class EdgeTts {
       };
       const done = () => finish(null, { blob: this.#toBlob(chunks), boundaries });
       const onAbort = () => finish(new Error('Đã huỷ yêu cầu.'));
-      const timer = setTimeout(
-        () => finish(new Error('Edge TTS không phản hồi (quá 20 giây).')),
-        REQUEST_TIMEOUT_MS,
-      );
+      const timer = setTimeout(() => {
+        const got = [
+          seen.turnStart ? 'đã bắt đầu phiên' : 'chưa có turn.start',
+          `${seen.audioBytes} byte audio`,
+          `${boundaries.length} mốc từ`,
+        ].join(', ');
+        const error = new Error(
+          `Edge TTS không phản hồi sau ${Math.round(budget / 1000)} giây ` +
+            `cho ${text.length} ký tự (${got}).`,
+        );
+        error.timedOut = true;
+        finish(error);
+      }, budget);
       signal?.addEventListener('abort', onAbort, { once: true });
 
       socket.onopen = () => {
@@ -304,6 +332,10 @@ export class EdgeTts {
 
       socket.onmessage = (event) => {
         if (typeof event.data === 'string') {
+          if (event.data.includes('Path:turn.start')) {
+            seen.turnStart = true;
+            return;
+          }
           if (event.data.includes('Path:audio.metadata')) {
             collectBoundaries(event.data, boundaries);
             return;
@@ -318,7 +350,10 @@ export class EdgeTts {
           return;
         }
         const { header, audio } = readBinaryFrame(event.data);
-        if (header.includes('Path:audio') && audio.length) chunks.push(audio);
+        if (header.includes('Path:audio') && audio.length) {
+          chunks.push(audio);
+          seen.audioBytes += audio.length;
+        }
       };
 
       socket.onerror = () =>

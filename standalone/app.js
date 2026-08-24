@@ -16,6 +16,9 @@
  */
 const BUILD_DEFAULTS = {};
 
+/** Shrinking below roughly one sentence per request gains nothing. */
+const MIN_CHUNK_CHARS = 100;
+
 const $ = (id) => document.getElementById(id);
 
 /** localStorage throws on file:// in some browsers; degrade to memory. */
@@ -43,6 +46,8 @@ const settings = {
   edgeVoice: store.get('edgeVoice', BUILD_DEFAULTS.voice ?? 'vi-VN-HoaiMyNeural'),
   bareWs: store.get('bareWs', '1') === '1',
   mp3: store.get('mp3', '1') === '1',
+  wordBoundary: store.get('wordBoundary', '1') === '1',
+  edgeTimeouts: {},
   buffer: Number(store.get('buffer', 2)),
   chunkChars: Number(store.get('chunkChars', 700)),
   rate: Number(store.get('rate', 1)),
@@ -191,6 +196,8 @@ class EdgeEngine {
       voice: settings.edgeVoice,
       endpoint: settings.endpoint,
       bareWs: settings.bareWs,
+      wordBoundary: settings.wordBoundary,
+      ...settings.edgeTimeouts,
       format: settings.mp3 ? 'audio-24khz-48kbitrate-mono-mp3' : 'riff-24khz-16bit-mono-pcm',
     });
     this.reset();
@@ -368,6 +375,20 @@ const player = {
     audio.play().catch(() => {});
   },
 
+  /**
+   * A request that ran out of time was probably too big for this relay. Halve
+   * it and rebuild, returning whether there was any room left to shrink.
+   */
+  shrinkOnTimeout(error) {
+    if (!error.timedOut || settings.chunkChars <= MIN_CHUNK_CHARS) return false;
+    settings.chunkChars = Math.max(MIN_CHUNK_CHARS, Math.round(settings.chunkChars / 2));
+    store.set('chunkChars', settings.chunkChars);
+    toast(`Relay không kịp — giảm xuống ${settings.chunkChars} ký tự mỗi yêu cầu.`, 5000);
+    showChapter(chapterIndex, this.index);
+    applySettings();
+    return true;
+  },
+
   async start(from = null) {
     if (!sentences.length) return;
     if (from != null) this.index = from;
@@ -383,8 +404,16 @@ const player = {
           $('status').textContent = `Đang đệm ${done}/${total} khối…`;
         });
       } catch (error) {
+        // The very first request can time out before the loop ever runs, so
+        // the recovery has to live here too.
+        const resumeAt = this.index;
+        if (this.shrinkOnTimeout(error)) {
+          this.playing = false;
+          this.start(resumeAt);
+          return;
+        }
         this.stop();
-        toast(error.message, 6000);
+        toast(error.message, 8000);
         return;
       }
       if (!this.playing) return; // paused while buffering
@@ -420,8 +449,11 @@ const player = {
         }
       } catch (error) {
         if (error.message === 'cancelled') return; // seek or pause took over
+        // A request that ran out of time was probably too big for this relay;
+        // halve it and carry on rather than stopping the reader.
+        if (this.shrinkOnTimeout(error)) continue;
         this.stop();
-        toast(error.message, 6000);
+        toast(error.message, 8000);
         return;
       }
       if (!this.playing) return;
@@ -552,6 +584,7 @@ function applySettings() {
   $('edge-voice').value = settings.edgeVoice;
   $('edge-bare').checked = settings.bareWs;
   $('edge-mp3').checked = settings.mp3;
+  $('edge-boundary').checked = settings.wordBoundary;
   $('buffer-range').value = String(settings.buffer);
   $('buffer-value').textContent = `${settings.buffer} khối`;
   $('chunk-range').value = String(settings.chunkChars);
@@ -659,6 +692,7 @@ for (const [id, key, prop] of [
   ['edge-voice', 'edgeVoice', 'value'],
   ['edge-bare', 'bareWs', 'checked'],
   ['edge-mp3', 'mp3', 'checked'],
+  ['edge-boundary', 'wordBoundary', 'checked'],
 ]) {
   $(id).addEventListener('change', () => {
     settings[key] = $(id)[prop];
@@ -732,6 +766,13 @@ if (params.get('edge_endpoint')) {
   settings.engine = 'edge';
 }
 if (params.get('edge_voice')) settings.edgeVoice = params.get('edge_voice');
+settings.edgeTimeouts = {};
+if (params.get('edge_timeout_base')) {
+  settings.edgeTimeouts.timeoutBaseMs = Number(params.get('edge_timeout_base'));
+}
+if (params.get('edge_timeout_per_char')) {
+  settings.edgeTimeouts.timeoutPerCharMs = Number(params.get('edge_timeout_per_char'));
+}
 if (params.get('engine')) settings.engine = params.get('engine');
 
 applySettings();

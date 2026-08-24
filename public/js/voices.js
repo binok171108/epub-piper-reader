@@ -160,6 +160,11 @@ export function edgeOptions(search = location.search) {
   if (params.get('edge_gec_version')) options.gecVersion = params.get('edge_gec_version');
   if (params.get('edge_pcm_rate')) options.pcmRate = params.get('edge_pcm_rate');
   if (params.get('edge_bare_ws')) options.bareWs = params.get('edge_bare_ws') !== '0';
+  // Shortening the budget is what makes the timeout path testable.
+  if (params.get('edge_timeout_base')) options.timeoutBaseMs = Number(params.get('edge_timeout_base'));
+  if (params.get('edge_timeout_per_char')) {
+    options.timeoutPerCharMs = Number(params.get('edge_timeout_per_char'));
+  }
   return options;
 }
 

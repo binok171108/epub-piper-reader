@@ -140,6 +140,43 @@ try {
   await plainPage.close();
   await plain.close();
 
+  // A relay that stalls on long input: the reader must shrink its requests and
+  // keep going rather than stopping at the timeout.
+  const stallPort = EDGE_PORT + 2;
+  const stall = await startMockEdgeServer(stallPort, { maxChars: 120 });
+  const stallPage = await browser.newPage();
+  stallPage.on('pageerror', (error) => errors.push(String(error)));
+  await stallPage.goto(
+    `${fileUrl}?edge_endpoint=ws://localhost:${stallPort}/edge/v1` +
+      '&engine=edge&edge_voice=vi-VN-HoaiMyNeural' +
+      '&edge_timeout_base=800&edge_timeout_per_char=2',
+  );
+  await stallPage.setInputFiles('#file-input', epub);
+  await stallPage.waitForSelector('.sent[data-i]', { timeout: 20000 });
+  await stallPage.locator('#btn-play').click();
+
+  const recovered = await stallPage
+    .waitForFunction(
+      () => {
+        const audio = document.getElementById('audio');
+        return audio.src.startsWith('blob:') && audio.duration > 0.2;
+      },
+      null,
+      { timeout: 60000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  const shrunk = await stallPage.evaluate(() => Number(localStorage.getItem('chunkChars')));
+  check('timeout thì tự giảm kích thước yêu cầu và đọc tiếp', recovered, `còn ${shrunk} ký tự`);
+  check(
+    'đã thực sự giảm xuống mức relay chịu được',
+    shrunk > 0 && shrunk <= 120,
+    `${shrunk} ký tự (relay chỉ nhận 120)`,
+  );
+  await stallPage.locator('#btn-play').click();
+  await stallPage.close();
+  await stall.close();
+
   // Headless Chromium exposes no speech voices; the page must say so, not break.
   await page.locator('#btn-settings').click();
   await page.selectOption('#engine-select', 'system');
