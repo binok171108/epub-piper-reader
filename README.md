@@ -145,7 +145,20 @@ https://binok171108.github.io/epub-piper-reader/?edge_endpoint=wss://relay:8585/
 ```
 
 Query có sẵn trong `edge_endpoint` vẫn được giữ nguyên khi client nối thêm
-`TrustedClientToken` / `Sec-MS-GEC` / `ConnectionId`.
+`TrustedClientToken` / `Sec-MS-GEC` / `Sec-MS-GEC-Version` / `ConnectionId`.
+
+Relay tự cấp credential không cần mấy tham số đó — thêm **`?edge_bare_ws=1`** để
+client mở WebSocket với URL nguyên vẹn, không nối thêm gì.
+
+Format và tốc độ **không** đi qua query của URL WebSocket: `edge_format` nằm
+trong trường `outputFormat` của frame `speech.config`, còn tốc độ nằm trong
+`prosody rate` của SSML. Relay phải đọc hai frame đó.
+
+Xem chính xác client gửi gì (URL, Origin, từng frame) ở cả hai chế độ:
+
+```bash
+npm run dump-edge
+```
 
 Client **tự nhận diện định dạng audio từ chính bytes trả về** (RIFF/WAVE, OggS,
 fLaC, ID3, MPEG frame sync), nên nhãn `edge_format` sai cũng không làm hỏng phát
@@ -176,7 +189,7 @@ mặc định 24000 — đổi bằng `?edge_pcm_rate=16000`.
 npm test
 ```
 
-Chạy 35 kiểm tra trên Chromium headless: mở EPUB, tách câu, ảnh, mục lục, nhớ vị
+Chạy 37 kiểm tra trên Chromium headless: mở EPUB, tách câu, ảnh, mục lục, nhớ vị
 trí, khởi động cả hai khối WASM, tổng hợp giọng end-to-end, tự chuyển câu/chương,
 **tải lại được khi đã ngắt mạng**, và toàn bộ giao thức Edge TTS.
 

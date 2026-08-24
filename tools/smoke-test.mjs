@@ -337,6 +337,42 @@ try {
   await pcmPage.locator('#btn-play').click();
   await pcmPage.close();
 
+  // ?edge_bare_ws=1: a relay that mints its own credentials wants the URL left
+  // alone, so nothing of ours may appear in the query string.
+  const barePage = await browser.newPage();
+  barePage.on('pageerror', (error) => errors.push(String(error)));
+  await barePage.goto(
+    `${BASE}/?edge_endpoint=ws://localhost:${EDGE_PORT}/edge/v1&edge_bare_ws=1&edge_format=riff-24khz-16bit-mono-pcm`,
+    { waitUntil: 'networkidle' },
+  );
+  await barePage.setInputFiles('#file-input', fileURLToPath(new URL('../test-book.epub', import.meta.url)));
+  await barePage.waitForSelector('.sent[data-i]', { timeout: 15000 });
+  await barePage.locator('#btn-settings').click();
+  await barePage.selectOption('#voice-select', 'edge:vi-VN-HoaiMyNeural');
+  await barePage.locator('#panel-settings [data-close]').click();
+  const bareBefore = edge.report.requests.length;
+  await barePage.locator('#btn-play').click();
+  const bareDuration = await barePage
+    .waitForFunction(
+      () => {
+        const audio = document.getElementById('audio');
+        return audio.src.startsWith('blob:') && audio.duration > 0.2 ? audio.duration : false;
+      },
+      null,
+      { timeout: 30000 },
+    )
+    .then((handle) => handle.jsonValue())
+    .catch(() => 0);
+  check('bare WS vẫn tổng hợp được', bareDuration > 0.2, `${Number(bareDuration).toFixed(2)}s`);
+  const bareRequest = edge.report.requests[bareBefore];
+  check(
+    'bare WS không gửi query nào',
+    bareRequest?.bare === true && !bareRequest.rawUrl.includes('?'),
+    bareRequest?.rawUrl ?? 'không có kết nối',
+  );
+  await barePage.locator('#btn-play').click();
+  await barePage.close();
+
   await edge.close();
 
   /* --------------------------------------------------- service worker */

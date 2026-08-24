@@ -154,6 +154,7 @@ export class EdgeTts {
     pitch = '+0Hz',
     volume = '+0%',
     pcmRate = DEFAULT_PCM_RATE,
+    bareWs = false,
   }) {
     this.voice = voice;
     this.endpoint = endpoint;
@@ -163,6 +164,7 @@ export class EdgeTts {
     this.pitch = pitch;
     this.volume = volume;
     this.pcmRate = Number(pcmRate) || DEFAULT_PCM_RATE;
+    this.bareWs = Boolean(bareWs);
   }
 
   /** Turns the collected frames into something the player can actually play. */
@@ -189,10 +191,15 @@ export class EdgeTts {
 
   async #url() {
     const url = new URL(this.endpoint);
-    url.searchParams.set('TrustedClientToken', TRUSTED_CLIENT_TOKEN);
-    url.searchParams.set('Sec-MS-GEC', await secMsGec());
-    url.searchParams.set('Sec-MS-GEC-Version', this.gecVersion);
-    url.searchParams.set('ConnectionId', crypto.randomUUID().replaceAll('-', ''));
+    // Microsoft's own endpoint authenticates from the query string. A relay
+    // that mints its own credentials has no use for these and may reject
+    // unknown parameters outright, so bareWs leaves the URL untouched.
+    if (!this.bareWs) {
+      url.searchParams.set('TrustedClientToken', TRUSTED_CLIENT_TOKEN);
+      url.searchParams.set('Sec-MS-GEC', await secMsGec());
+      url.searchParams.set('Sec-MS-GEC-Version', this.gecVersion);
+      url.searchParams.set('ConnectionId', crypto.randomUUID().replaceAll('-', ''));
+    }
     return url.href;
   }
 

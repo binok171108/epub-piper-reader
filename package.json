@@ -11,7 +11,8 @@
     "start": "node scripts/serve.mjs",
     "dist": "node tools/make-dist.mjs",
     "test": "node tools/make-test-epub.mjs && node tools/make-test-model.mjs && node tools/smoke-test.mjs",
-    "icons": "node tools/make-icons.mjs"
+    "icons": "node tools/make-icons.mjs",
+    "dump-edge": "node tools/make-test-epub.mjs && node tools/dump-edge-protocol.mjs"
   },
   "dependencies": {
     "@diffusionstudio/piper-wasm": "1.0.0",

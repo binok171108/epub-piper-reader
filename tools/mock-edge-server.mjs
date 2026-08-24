@@ -87,28 +87,42 @@ export function startMockEdgeServer(port) {
     const params = url.searchParams;
     const problems = [];
 
-    if (params.get('TrustedClientToken') !== TRUSTED_CLIENT_TOKEN) {
-      problems.push('TrustedClientToken sai hoặc thiếu');
-    }
-    // Accept the neighbouring five-minute window too, so a tick over the
-    // boundary mid-test is not reported as a client bug.
-    const sent = params.get('Sec-MS-GEC');
-    if (sent !== expectedGec() && sent !== expectedGec(Date.now() - 300000)) {
-      problems.push(`Sec-MS-GEC không khớp (nhận ${sent})`);
-    }
-    if (!/^1-\d+\.\d+\.\d+\.\d+$/.test(params.get('Sec-MS-GEC-Version') ?? '')) {
-      problems.push(`Sec-MS-GEC-Version sai dạng (${params.get('Sec-MS-GEC-Version')})`);
-    }
-    if (!/^[0-9a-f]{32}$/.test(params.get('ConnectionId') ?? '')) {
-      problems.push('ConnectionId phải là uuid không dấu gạch');
+    // A relay that mints its own credentials gets a bare URL (edge_bare_ws),
+    // so the query-string checks only apply when the client was asked to
+    // authenticate the way Microsoft's endpoint expects.
+    const bare = !params.has('TrustedClientToken') && !params.has('Sec-MS-GEC');
+    if (!bare) {
+      if (params.get('TrustedClientToken') !== TRUSTED_CLIENT_TOKEN) {
+        problems.push('TrustedClientToken sai hoặc thiếu');
+      }
+      // Accept the neighbouring five-minute window too, so a tick over the
+      // boundary mid-test is not reported as a client bug.
+      const sent = params.get('Sec-MS-GEC');
+      if (sent !== expectedGec() && sent !== expectedGec(Date.now() - 300000)) {
+        problems.push(`Sec-MS-GEC không khớp (nhận ${sent})`);
+      }
+      if (!/^1-\d+\.\d+\.\d+\.\d+$/.test(params.get('Sec-MS-GEC-Version') ?? '')) {
+        problems.push(`Sec-MS-GEC-Version sai dạng (${params.get('Sec-MS-GEC-Version')})`);
+      }
+      if (!/^[0-9a-f]{32}$/.test(params.get('ConnectionId') ?? '')) {
+        problems.push('ConnectionId phải là uuid không dấu gạch');
+      }
     }
 
-    const entry = { origin: request.headers.origin ?? null, problems };
+    const entry = {
+      origin: request.headers.origin ?? null,
+      rawUrl: request.url,
+      bare,
+      frames: [],
+      problems,
+    };
     report.requests.push(entry);
 
     let format = null;
     socket.on('message', (data) => {
-      const { headers, body } = parseMessage(data.toString('utf8'));
+      const frame = data.toString('utf8');
+      entry.frames.push(frame);
+      const { headers, body } = parseMessage(frame);
 
       if (headers.Path === 'speech.config') {
         format = JSON.parse(body).context?.synthesis?.audio?.outputFormat ?? null;
