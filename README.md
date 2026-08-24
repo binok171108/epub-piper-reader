@@ -76,6 +76,36 @@ Bản đang chạy: **https://binok171108.github.io/epub-piper-reader/**
 > Lưu ý: GitHub Pages cho repo **private** chỉ có ở gói Pro/Team/Enterprise.
 > Repo này để public nên dùng được với tài khoản Free.
 
+## Bản một tệp HTML
+
+`npm run standalone` dựng `public/epub-reader-standalone.html` (~143 KB) — toàn bộ
+trình đọc trong đúng một tệp, mở thẳng từ Files/OneDrive, không cần server.
+
+Tải sẵn tại:
+**https://binok171108.github.io/epub-piper-reader/epub-reader-standalone.html**
+
+Nó dùng lại chính `epub.js`, `segment.js`, `edge-tts.js` của bản PWA (build script
+inline vào, không chép lại code), nên hai bản không lệch nhau.
+
+Khác biệt so với bản PWA:
+
+| | PWA | Một tệp |
+|---|---|---|
+| Piper trên máy | ✅ | ❌ — không nạp nổi 39 MB WASM từ `file://` |
+| Giọng hệ thống iOS | ❌ | ✅ `speechSynthesis`, chạy offline |
+| Edge TTS qua relay | ✅ | ✅ |
+| Service worker / offline shell | ✅ | ❌ (bản thân tệp đã là offline) |
+| Nhớ vị trí đọc, thư viện sách | ✅ | ❌ — `file://` không cho IndexedDB tin cậy |
+
+Cấu hình được bằng query, đủ để lưu một bookmark:
+
+```
+epub-reader-standalone.html?engine=edge&edge_endpoint=wss://relay:8585/edge/v1&edge_voice=vi-VN-HoaiMyNeural
+```
+
+Lưu ý cho người viết relay: trang mở từ `file://` gửi **`Origin: null`**. Relay
+không được từ chối origin đó.
+
 ## Dùng trên iPhone
 
 1. Mở URL Pages bằng **Safari** (không phải Chrome iOS).
@@ -189,7 +219,8 @@ mặc định 24000 — đổi bằng `?edge_pcm_rate=16000`.
 npm test
 ```
 
-Chạy 37 kiểm tra trên Chromium headless: mở EPUB, tách câu, ảnh, mục lục, nhớ vị
+Chạy 37 kiểm tra cho bản PWA cộng 13 kiểm tra cho bản một tệp (mở thật từ
+`file://`), trên Chromium headless: mở EPUB, tách câu, ảnh, mục lục, nhớ vị
 trí, khởi động cả hai khối WASM, tổng hợp giọng end-to-end, tự chuyển câu/chương,
 **tải lại được khi đã ngắt mạng**, và toàn bộ giao thức Edge TTS.
 

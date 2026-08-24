@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Đọc EPUB · bản một tệp</title>
+<meta name="theme-color" content="#111417">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>/*STYLE*/</style>
+</head>
+<body data-view="library">
+
+<header class="bar bar--top">
+  <button class="icon-btn" id="btn-open" aria-label="Mở tệp">☰</button>
+  <div class="bar__title">
+    <strong id="book-title">Đọc EPUB</strong>
+    <span id="book-author"></span>
+  </div>
+  <button class="icon-btn" id="btn-toc" aria-label="Mục lục">⁝≡</button>
+  <button class="icon-btn" id="btn-settings" aria-label="Cài đặt">⚙︎</button>
+</header>
+
+<main id="reader" tabindex="-1">
+  <section id="welcome" class="welcome">
+    <h1>Đọc EPUB · bản một tệp</h1>
+    <p>
+      Toàn bộ ứng dụng nằm trong đúng tệp HTML này. Mở một tệp <code>.epub</code>,
+      chọn giọng, rồi bấm phát.
+    </p>
+    <label class="button button--primary">
+      Chọn tệp EPUB
+      <input type="file" id="file-input" accept=".epub,application/epub+zip" hidden>
+    </label>
+    <p class="hint" id="welcome-hint"></p>
+  </section>
+  <article id="chapter" class="chapter" hidden></article>
+</main>
+
+<footer class="bar bar--bottom" id="player" hidden>
+  <div class="progress"><div class="progress__fill" id="progress-fill"></div></div>
+  <div class="player__status" id="status"></div>
+  <div class="player__controls">
+    <button class="icon-btn" id="btn-prev-chapter" aria-label="Chương trước">⏮</button>
+    <button class="icon-btn" id="btn-prev" aria-label="Câu trước">◀◀</button>
+    <button class="icon-btn icon-btn--play" id="btn-play" aria-label="Phát">▶</button>
+    <button class="icon-btn" id="btn-next" aria-label="Câu sau">▶▶</button>
+    <button class="icon-btn" id="btn-next-chapter" aria-label="Chương sau">⏭</button>
+    <button class="chip" id="btn-rate">1.0×</button>
+  </div>
+</footer>
+
+<div class="scrim" id="scrim" hidden></div>
+
+<aside class="panel" id="panel-toc" hidden>
+  <header><h2>Mục lục</h2><button class="icon-btn" data-close aria-label="Đóng">✕</button></header>
+  <div class="panel__body"><ul class="list" id="toc-list"></ul></div>
+</aside>
+
+<aside class="panel" id="panel-settings" hidden>
+  <header><h2>Cài đặt</h2><button class="icon-btn" data-close aria-label="Đóng">✕</button></header>
+  <div class="panel__body">
+    <label class="field">
+      <span>Nguồn giọng đọc</span>
+      <select id="engine-select">
+        <option value="system">Giọng hệ thống iOS · không cần mạng</option>
+        <option value="edge">Edge TTS qua relay · cần mạng</option>
+      </select>
+    </label>
+
+    <label class="field" id="field-system">
+      <span>Giọng hệ thống</span>
+      <select id="system-voice"></select>
+      <span class="hint">
+        Giọng do iOS cung cấp. Tải thêm giọng chất lượng cao ở
+        Cài đặt → Trợ năng → Nội dung nói → Giọng nói.
+      </span>
+    </label>
+
+    <div class="field" id="field-edge" hidden>
+      <span>Relay Edge TTS</span>
+      <input type="text" id="edge-endpoint" placeholder="wss://host:8585/edge/v1"
+             autocapitalize="off" autocorrect="off" spellcheck="false">
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="edge-voice" placeholder="vi-VN-HoaiMyNeural"
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+      </div>
+      <label class="field--row" style="margin-top:10px">
+        <input type="checkbox" id="edge-bare" checked>
+        <span>URL thuần, không kèm tham số</span>
+      </label>
+      <label class="field--row">
+        <input type="checkbox" id="edge-mp3" checked>
+        <span>Yêu cầu MP3 (bỏ chọn để xin PCM)</span>
+      </label>
+      <p class="hint">
+        Văn bản được gửi tới relay để tổng hợp. Relay phải có certificate hợp lệ,
+        nếu không trình duyệt sẽ từ chối kết nối.
+      </p>
+    </div>
+
+    <label class="field">
+      <span>Tốc độ đọc <b id="rate-value">1.0×</b></span>
+      <input type="range" id="rate-range" min="0.5" max="2" step="0.05" value="1">
+    </label>
+
+    <label class="field--row">
+      <input type="checkbox" id="opt-scroll" checked>
+      <span>Tự cuộn theo câu đang đọc</span>
+    </label>
+
+    <label class="field" style="margin-top:22px">
+      <span>Cỡ chữ</span>
+      <input type="range" id="font-range" min="15" max="26" step="1" value="18">
+    </label>
+
+    <p class="hint" id="about"></p>
+  </div>
+</aside>
+
+<audio id="audio" preload="auto" playsinline></audio>
+<div class="toast" id="toast" hidden></div>
+
+<script type="module">/*SCRIPT*/</script>
+</body>
+</html>

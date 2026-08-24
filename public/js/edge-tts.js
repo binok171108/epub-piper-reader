@@ -68,6 +68,18 @@ function timestamp(date = new Date()) {
   );
 }
 
+/**
+ * 32 hex characters, the shape the protocol wants for request and connection
+ * ids. crypto.randomUUID needs a secure context, which a file:// page does not
+ * reliably get, so this degrades instead of throwing.
+ */
+function randomId() {
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 function startsWith(bytes, text, offset = 0) {
   if (bytes.length < offset + text.length) return false;
   return [...text].every((char, i) => bytes[offset + i] === char.charCodeAt(0));
@@ -198,7 +210,7 @@ export class EdgeTts {
       url.searchParams.set('TrustedClientToken', TRUSTED_CLIENT_TOKEN);
       url.searchParams.set('Sec-MS-GEC', await secMsGec());
       url.searchParams.set('Sec-MS-GEC-Version', this.gecVersion);
-      url.searchParams.set('ConnectionId', crypto.randomUUID().replaceAll('-', ''));
+      url.searchParams.set('ConnectionId', randomId());
     }
     return url.href;
   }
@@ -211,7 +223,7 @@ export class EdgeTts {
   async synthesize(text, { signal } = {}) {
     const socket = new WebSocket(await this.#url());
     socket.binaryType = 'arraybuffer';
-    const requestId = crypto.randomUUID().replaceAll('-', '');
+    const requestId = randomId();
     const chunks = [];
 
     return new Promise((resolve, reject) => {
