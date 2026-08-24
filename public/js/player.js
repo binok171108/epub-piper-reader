@@ -146,7 +146,7 @@ export class Reader extends EventTarget {
   #renderSentence(text) {
     if (this.#edge) {
       this.#edge.rate = this.#edgeRate();
-      return this.#edge.synthesize(text, { signal: this.#abort.signal });
+      return this.#edge.synthesize(text, { signal: this.#abort.signal }).then((r) => r.blob);
     }
     if (!this.#worker) return Promise.reject(new Error('Chưa chọn giọng đọc.'));
     const id = this.#nextId++;

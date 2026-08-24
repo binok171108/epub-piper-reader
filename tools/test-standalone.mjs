@@ -58,11 +58,6 @@ try {
   check('chuyển sang Edge thì hiện ô relay', await page.locator('#field-edge').isVisible());
   await page.locator('#panel-settings [data-close]').click();
 
-  await page.locator('#btn-settings').click();
-  await page.locator('#buffer-range').fill('3');
-  await page.locator('#buffer-range').dispatchEvent('input');
-  await page.locator('#panel-settings [data-close]').click();
-
   const before = edge.report.requests.length;
   await page.locator('#btn-play').click();
   const duration = await page
@@ -78,18 +73,25 @@ try {
     .catch(() => 0);
   check('Edge relay phát được audio từ file://', duration > 0.2, `${Number(duration).toFixed(2)}s`);
 
-  // Buffering: the first sentence must not start until the buffer is filled,
-  // so by then the relay has already been asked for three sentences.
-  const primed = edge.report.requests.length - before;
-  check('đệm đủ 3 câu trước khi phát câu đầu', primed >= 3, `${primed} yêu cầu`);
+  // Batching: the whole seven-sentence chapter fits in one 700-character
+  // request, so the relay is contacted once rather than seven times.
+  const requests = edge.report.requests.length - before;
+  check('gộp cả chương vào một yêu cầu', requests === 1, `${requests} yêu cầu cho 7 câu`);
 
+  // Highlighting must still move sentence by sentence inside that one request,
+  // which is what the WordBoundary metadata is for.
   const advanced = await page
     .waitForFunction(() => Number(document.querySelector('.sent--active')?.dataset.i ?? -1) >= 2, null, {
       timeout: 60000,
     })
     .then(() => true)
     .catch(() => false);
-  check('đọc liên tiếp nhiều câu', advanced);
+  check('vẫn highlight từng câu trong một yêu cầu', advanced);
+  check(
+    'chỉ dùng một yêu cầu cho nhiều câu đã highlight',
+    edge.report.requests.length - before === 1,
+    `${edge.report.requests.length - before} yêu cầu`,
+  );
 
   // The old cache claimed a slot with null, which read as "not cached" and made
   // every sentence be synthesised twice - once wasted, once waited on.
@@ -111,6 +113,32 @@ try {
   check('máy chủ không thấy lỗi giao thức', edge.report.problems.length === 0, edge.report.problems.join(' || '));
 
   await page.locator('#btn-play').click();
+
+  // A relay that forwards no WordBoundary metadata: highlighting has to fall
+  // back to estimating from character counts rather than stop moving.
+  const plainPort = EDGE_PORT + 1;
+  const plain = await startMockEdgeServer(plainPort, { delayMs: 200, metadata: false });
+  const plainPage = await browser.newPage();
+  plainPage.on('pageerror', (error) => errors.push(String(error)));
+  await plainPage.goto(fileUrl);
+  await plainPage.setInputFiles('#file-input', epub);
+  await plainPage.waitForSelector('.sent[data-i]', { timeout: 20000 });
+  await plainPage.locator('#btn-settings').click();
+  await plainPage.selectOption('#engine-select', 'edge');
+  await plainPage.locator('#edge-endpoint').fill(`ws://localhost:${plainPort}/edge/v1`);
+  await plainPage.locator('#edge-endpoint').dispatchEvent('change');
+  await plainPage.locator('#panel-settings [data-close]').click();
+  await plainPage.locator('#btn-play').click();
+  const fallback = await plainPage
+    .waitForFunction(() => Number(document.querySelector('.sent--active')?.dataset.i ?? -1) >= 2, null, {
+      timeout: 60000,
+    })
+    .then(() => true)
+    .catch(() => false);
+  check('không có metadata vẫn highlight được (ước lượng)', fallback);
+  await plainPage.locator('#btn-play').click();
+  await plainPage.close();
+  await plain.close();
 
   // Headless Chromium exposes no speech voices; the page must say so, not break.
   await page.locator('#btn-settings').click();

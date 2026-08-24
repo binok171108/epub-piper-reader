@@ -84,6 +84,20 @@
     </label>
     <p class="hint" id="voice-note"></p>
 
+    <div class="field" id="relay-field">
+      <span>Relay Edge TTS (bỏ trống để dùng máy chủ Microsoft)</span>
+      <input type="text" id="relay-endpoint" placeholder="wss://host:8585/edge/v1"
+             autocapitalize="off" autocorrect="off" spellcheck="false">
+      <label class="field--row" style="margin-top:10px">
+        <input type="checkbox" id="relay-bare" checked>
+        <span>URL thuần, không kèm tham số</span>
+      </label>
+      <p class="hint">
+        Địa chỉ lưu trong trình duyệt này. Tham số <code>?edge_endpoint=</code> trên
+        URL vẫn được ưu tiên hơn.
+      </p>
+    </div>
+
     <div class="field" id="edge-field">
       <span>Thêm giọng Edge khác</span>
       <div class="row">

@@ -47,6 +47,9 @@ const els = {
   voiceSelect: $('voice-select'),
   voiceNote: $('voice-note'),
   edgeField: $('edge-field'),
+  relayEndpoint: $('relay-endpoint'),
+  relayBare: $('relay-bare'),
+  relayField: $('relay-field'),
   edgeName: $('edge-name'),
   addEdge: $('btn-add-edge'),
   modelField: $('model-field'),
@@ -293,6 +296,7 @@ function updateVoiceNote() {
   // way to reach voices beyond the short built-in list.
   const isEdge = voice.provider === 'edge';
   els.modelField.hidden = isEdge;
+  els.relayField.hidden = !isEdge;
   if (isEdge) return; // nothing to download
 
   isModelCached(modelUrls(voice).model).then((cached) => {
@@ -374,6 +378,8 @@ async function refreshStorageInfo() {
 }
 
 function applySettings() {
+  els.relayEndpoint.value = localStorage.getItem('relayEndpoint') ?? '';
+  els.relayBare.checked = localStorage.getItem('relayBare') !== '0';
   document.documentElement.style.setProperty('--reader-size', `${settings.fontSize}px`);
   els.rateRange.value = String(settings.rate);
   els.rateValue.textContent = `${settings.rate.toFixed(2)}×`;
@@ -480,6 +486,17 @@ els.voiceSelect.addEventListener('change', async () => {
   reader.pause();
   if (wasPlaying) startPlayback();
 });
+
+for (const [el, key, prop] of [
+  [els.relayEndpoint, 'relayEndpoint', 'value'],
+  [els.relayBare, 'relayBare', 'checked'],
+]) {
+  el.addEventListener('change', () => {
+    save(key, prop === 'checked' ? (el.checked ? '1' : '0') : el.value.trim());
+    loadedVoiceId = null; // reconnect with the new relay on next play
+    toast('Đã lưu. Bấm phát để kết nối lại.');
+  });
+}
 
 els.addEdge.addEventListener('click', () => {
   const name = els.edgeName.value.trim();

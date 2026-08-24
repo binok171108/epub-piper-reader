@@ -70,7 +70,31 @@ function audioFrame(requestId, payload) {
   return Buffer.concat([length, header, payload]);
 }
 
-export function startMockEdgeServer(port, { delayMs = 0 } = {}) {
+/** WordBoundary events spread evenly over the audio, as the real service sends. */
+function metadataFrames(requestId, text, seconds) {
+  const words = text.split(/\s+/).filter(Boolean);
+  return words.map((word, i) => {
+    const offsetTicks = Math.round(((i / words.length) * seconds) * 10_000_000);
+    const payload = {
+      Metadata: [
+        {
+          Type: 'WordBoundary',
+          Data: {
+            Offset: offsetTicks,
+            Duration: Math.round((seconds / words.length) * 10_000_000),
+            text: { Text: word, Length: word.length, BoundaryType: 'WordBoundary' },
+          },
+        },
+      ],
+    };
+    return (
+      `X-RequestId:${requestId}\r\nContent-Type:application/json; charset=utf-8\r\n` +
+      `Path:audio.metadata\r\n\r\n${JSON.stringify(payload)}`
+    );
+  });
+}
+
+export function startMockEdgeServer(port, { delayMs = 0, metadata = true } = {}) {
   const http = createServer((req, res) => {
     if (req.url.startsWith('/__report')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -158,7 +182,8 @@ export function startMockEdgeServer(port, { delayMs = 0 } = {}) {
       // One second of audio per 15 characters, delivered in two chunks so the
       // client's concatenation is exercised. A format naming pcm without riff
       // gets raw samples, the way a relay streaming PCM would send them.
-      const full = wav(Math.max(0.4, text.length / 15));
+      const seconds = Math.max(0.4, text.length / 15);
+      const full = wav(seconds);
       const audio = /pcm/i.test(format ?? '') && !/riff/i.test(format ?? '')
         ? full.subarray(44)
         : full;
@@ -170,6 +195,9 @@ export function startMockEdgeServer(port, { delayMs = 0 } = {}) {
       // behaviour observable in a test.
       setTimeout(() => {
         if (socket.readyState !== socket.OPEN) return;
+        if (metadata) {
+          for (const frame of metadataFrames(requestId, text, seconds)) socket.send(frame);
+        }
         socket.send(audioFrame(requestId, audio.subarray(0, split)));
         socket.send(audioFrame(requestId, audio.subarray(split)));
         socket.send(

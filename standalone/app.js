@@ -43,7 +43,8 @@ const settings = {
   edgeVoice: store.get('edgeVoice', BUILD_DEFAULTS.voice ?? 'vi-VN-HoaiMyNeural'),
   bareWs: store.get('bareWs', '1') === '1',
   mp3: store.get('mp3', '1') === '1',
-  buffer: Number(store.get('buffer', 3)),
+  buffer: Number(store.get('buffer', 2)),
+  chunkChars: Number(store.get('chunkChars', 700)),
   rate: Number(store.get('rate', 1)),
   autoScroll: store.get('autoScroll', '1') === '1',
   fontSize: Number(store.get('fontSize', 18)),
@@ -52,6 +53,9 @@ const settings = {
 let book = null;
 let chapterIndex = 0;
 let sentences = [];
+let chunks = [];
+/** sentence index -> chunk index */
+let chunkOf = [];
 
 /* --------------------------------------------------------------- helpers */
 
@@ -167,15 +171,76 @@ class SystemEngine {
 
 /* ------------------------------------------------------------ edge relay */
 
+/* --------------------------------------------------------------- chunking */
+
+/**
+ * Groups consecutive sentences into one synthesis request.
+ *
+ * One WebSocket per sentence means paying a TLS handshake, a relay hop and an
+ * upstream connection for every few seconds of speech, which no amount of
+ * buffering can hide - the pipeline simply cannot outrun playback. Asking for
+ * a paragraph at a time amortises that overhead across far more audio.
+ */
+function buildChunks(list, maxChars) {
+  const chunks = [];
+  let current = null;
+  list.forEach((text, index) => {
+    if (current && current.text.length + 1 + text.length > maxChars) current = null;
+    if (!current) {
+      current = { first: index, last: index, text: '', ranges: [] };
+      chunks.push(current);
+    }
+    const start = current.text.length ? current.text.length + 1 : 0;
+    current.text = current.text ? `${current.text} ${text}` : text;
+    current.ranges.push({ index, start });
+    current.last = index;
+  });
+  return chunks;
+}
+
+/**
+ * Where each sentence of a chunk begins, in seconds.
+ *
+ * WordBoundary events give an audio offset per spoken word; walking them
+ * against the text recovers a character position, and from there a sentence.
+ * Without metadata the split is estimated from character counts, which drifts
+ * a little but still tracks the reading.
+ */
+function sentenceStarts(chunk, boundaries, duration) {
+  if (boundaries?.length) {
+    const marks = [];
+    let cursor = 0;
+    for (const boundary of boundaries) {
+      const at = chunk.text.indexOf(boundary.text, cursor);
+      if (at < 0) continue;
+      cursor = at + boundary.text.length;
+      marks.push({ charPos: at, seconds: boundary.timeMs / 1000 });
+    }
+    if (marks.length) {
+      return chunk.ranges.map((range, i) => {
+        if (i === 0) return 0;
+        return marks.find((m) => m.charPos >= range.start)?.seconds ?? null;
+      });
+    }
+  }
+  const total = chunk.text.length || 1;
+  return chunk.ranges.map((range) => (duration || 0) * (range.start / total));
+}
+
+/* ------------------------------------------------------------ edge relay */
+
 class EdgeEngine {
   constructor(audio) {
     this.audio = audio;
     this.client = null;
-    /** index -> Promise<objectURL>. Holding the promise, not the finished URL,
-     *  is what stops a sentence already in flight from being requested twice. */
+    /** chunk index -> Promise<{url, boundaries}>. Holding the promise, not the
+     *  finished URL, is what stops a request in flight being made twice. */
     this.pending = new Map();
     this.urls = new Map();
     this.generation = 0;
+    /** Last request's cost, so the settings panel can show whether the relay
+     *  produces audio faster than it is consumed. */
+    this.lastStat = null;
   }
 
   configure() {
@@ -196,20 +261,21 @@ class EdgeEngine {
     this.pending.clear();
   }
 
-  /** Starts (or joins) the synthesis of one sentence. */
   render(index) {
-    if (index < 0 || index >= sentences.length) return null;
+    if (index < 0 || index >= chunks.length) return null;
     const existing = this.pending.get(index);
     if (existing) return existing;
 
     const generation = this.generation;
-    const promise = this.client.synthesize(sentences[index]).then((blob) => {
+    const chunk = chunks[index];
+    const started = performance.now();
+    const promise = this.client.synthesize(chunk.text).then(({ blob, boundaries }) => {
       if (generation !== this.generation) throw new Error('cancelled');
       const url = URL.createObjectURL(blob);
       this.urls.set(index, url);
-      return url;
+      this.lastStat = { chars: chunk.text.length, ms: Math.round(performance.now() - started) };
+      return { url, boundaries };
     });
-    // A failed sentence must not stay cached, or it can never be retried.
     promise.catch(() => {
       if (this.pending.get(index) === promise) this.pending.delete(index);
     });
@@ -217,12 +283,10 @@ class EdgeEngine {
     return promise;
   }
 
-  /** Keeps `settings.buffer` sentences in flight or ready from `from` onwards. */
   fill(from) {
     for (let i = from; i < from + settings.buffer; i++) this.render(i);
   }
 
-  /** Drops audio well behind the cursor so memory stays bounded. */
   trim(index) {
     for (const [i, url] of this.urls) {
       if (i < index - 1 || i > index + settings.buffer + 1) {
@@ -233,26 +297,21 @@ class EdgeEngine {
     }
   }
 
-  /**
-   * Fills the buffer before the first sentence plays. Without this the reader
-   * starts the moment sentence one is ready and then stalls on every sentence
-   * after it, because each round trip only begins as the previous one ends.
-   */
+  /** Fills the buffer before the first chunk plays. */
   async prime(from, onProgress) {
     if (!this.client) this.configure();
     const wanted = [];
-    for (let i = from; i < Math.min(from + settings.buffer, sentences.length); i++) {
+    for (let i = from; i < Math.min(from + settings.buffer, chunks.length); i++) {
       wanted.push(this.render(i));
     }
     if (!wanted.length) return;
     onProgress?.(0, wanted.length);
 
-    // Fail fast: if the relay cannot produce even the first sentence there is
-    // no point waiting out a timeout on each of the others.
+    // Fail fast: if the relay cannot produce even the first chunk there is no
+    // point waiting out a timeout on each of the others.
     await wanted[0];
     let done = 1;
     onProgress?.(done, wanted.length);
-
     await Promise.all(
       wanted.slice(1).map((promise) =>
         promise.then(
@@ -263,19 +322,29 @@ class EdgeEngine {
     );
   }
 
-  async speak(index, { rate, signal }) {
+  /**
+   * Plays one chunk, reporting which sentence is being spoken as it goes.
+   * Resolves when the chunk finishes.
+   */
+  async speak(index, { rate, signal, fromSentence, onSentence }) {
     if (!this.client) this.configure();
     this.fill(index);
 
-    const url = await this.render(index);
+    const { url, boundaries } = await this.render(index);
     if (signal?.aborted) throw new Error('cancelled');
     this.trim(index);
     this.fill(index + 1);
 
+    const chunk = chunks[index];
     return new Promise((resolve, reject) => {
+      let starts = null;
+      let active = -1;
+
       const cleanup = () => {
         this.audio.onended = null;
         this.audio.onerror = null;
+        this.audio.onloadedmetadata = null;
+        this.audio.ontimeupdate = null;
         signal?.removeEventListener('abort', onAbort);
       };
       const onAbort = () => {
@@ -284,6 +353,27 @@ class EdgeEngine {
         reject(new Error('cancelled'));
       };
       signal?.addEventListener('abort', onAbort, { once: true });
+
+      this.audio.onloadedmetadata = () => {
+        starts = sentenceStarts(chunk, boundaries, this.audio.duration);
+        if (this.lastStat) this.lastStat.seconds = this.audio.duration;
+        // Resuming mid-chunk: skip straight to the sentence asked for.
+        const offset = chunk.ranges.findIndex((r) => r.index === fromSentence);
+        if (offset > 0 && starts[offset] != null) this.audio.currentTime = starts[offset];
+      };
+
+      this.audio.ontimeupdate = () => {
+        if (!starts) return;
+        let current = 0;
+        for (let i = 0; i < starts.length; i++) {
+          if (starts[i] != null && starts[i] <= this.audio.currentTime) current = i;
+        }
+        if (current !== active) {
+          active = current;
+          onSentence?.(chunk.ranges[current].index);
+        }
+      };
+
       this.audio.onended = () => {
         cleanup();
         resolve();
@@ -292,6 +382,7 @@ class EdgeEngine {
         cleanup();
         reject(new Error('Không phát được audio trả về từ relay.'));
       };
+
       this.audio.src = url;
       this.audio.playbackRate = rate;
       this.audio.play().catch((error) => {
@@ -303,6 +394,18 @@ class EdgeEngine {
 
   stop() {
     this.audio.pause();
+  }
+
+  /** Human-readable throughput of the last request. */
+  statLine() {
+    const stat = this.lastStat;
+    if (!stat) return 'Chưa có số liệu.';
+    const parts = [`${stat.chars} ký tự trong ${(stat.ms / 1000).toFixed(1)}s`];
+    if (stat.seconds) {
+      parts.push(`→ ${stat.seconds.toFixed(1)}s audio`);
+      parts.push(`(${(stat.seconds / (stat.ms / 1000)).toFixed(1)}× thời gian thực)`);
+    }
+    return parts.join(' ');
   }
 }
 
@@ -337,8 +440,8 @@ const player = {
       await engines.system.ready();
     } else {
       try {
-        await engines.edge.prime(this.index, (done, total) => {
-          $('status').textContent = `Đang đệm ${done}/${total} câu…`;
+        await engines.edge.prime(chunkOf[this.index] ?? 0, (done, total) => {
+          $('status').textContent = `Đang đệm ${done}/${total} khối…`;
         });
       } catch (error) {
         this.stop();
@@ -362,12 +465,19 @@ const player = {
             voiceUri: settings.systemVoice,
             signal: this.abort.signal,
           });
+          this.index++;
         } else {
-          $('status').textContent = 'Đang tổng hợp…';
-          await engines.edge.speak(this.index, {
+          const chunkIndex = chunkOf[this.index];
+          await engines.edge.speak(chunkIndex, {
             rate: settings.rate,
             signal: this.abort.signal,
+            fromSentence: this.index,
+            onSentence: (index) => {
+              this.index = index;
+              highlight(index, true);
+            },
           });
+          this.index = chunks[chunkIndex].last + 1;
         }
       } catch (error) {
         if (error.message === 'cancelled') return; // seek or pause took over
@@ -376,7 +486,6 @@ const player = {
         return;
       }
       if (!this.playing) return;
-      this.index++;
     }
     if (this.playing) {
       this.stop();
@@ -430,6 +539,11 @@ function showChapter(index, sentenceIndex = 0) {
   $('chapter').hidden = false;
   $('chapter').innerHTML = book.chapterHtml(chapterIndex);
   sentences = segment($('chapter'));
+  chunks = buildChunks(sentences, settings.chunkChars);
+  chunkOf = [];
+  chunks.forEach((chunk, index) => {
+    for (const range of chunk.ranges) chunkOf[range.index] = index;
+  });
   engines.edge.reset();
   player.index = sentenceIndex;
   window.scrollTo(0, 0);
@@ -503,7 +617,10 @@ function applySettings() {
   $('edge-bare').checked = settings.bareWs;
   $('edge-mp3').checked = settings.mp3;
   $('buffer-range').value = String(settings.buffer);
-  $('buffer-value').textContent = `${settings.buffer} câu`;
+  $('buffer-value').textContent = `${settings.buffer} khối`;
+  $('chunk-range').value = String(settings.chunkChars);
+  $('chunk-value').textContent = `${settings.chunkChars} ký tự`;
+  $('stat-line').textContent = `Lần gọi gần nhất: ${engines.edge.statLine()}`;
   $('rate-range').value = String(settings.rate);
   $('rate-value').textContent = `${settings.rate.toFixed(2)}×`;
   $('btn-rate').textContent = `${settings.rate.toFixed(1)}×`;
@@ -615,6 +732,21 @@ for (const [id, key, prop] of [
     applySettings();
   });
 }
+
+$('chunk-range').addEventListener('change', () => {
+  settings.chunkChars = Number($('chunk-range').value);
+  store.set('chunkChars', settings.chunkChars);
+  // Regrouping invalidates everything already rendered.
+  const wasPlaying = player.playing;
+  player.stop();
+  if (book) showChapter(chapterIndex, player.index);
+  applySettings();
+  if (wasPlaying) player.start();
+});
+
+$('chunk-range').addEventListener('input', () => {
+  $('chunk-value').textContent = `${$('chunk-range').value} ký tự`;
+});
 
 $('buffer-range').addEventListener('input', () => {
   settings.buffer = Number($('buffer-range').value);

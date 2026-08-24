@@ -149,6 +149,28 @@ function buildSsml({ voice, text, rate, pitch, volume }) {
 }
 
 /** Binary frames are a 2-byte big-endian header length, the header, then audio. */
+/**
+ * Pulls WordBoundary events out of an audio.metadata frame. Offsets arrive in
+ * 100-nanosecond ticks; the word text is what lets them be lined up against
+ * the text that was sent.
+ */
+function collectBoundaries(frame, out) {
+  const split = frame.indexOf('\r\n\r\n');
+  if (split < 0) return;
+  let payload;
+  try {
+    payload = JSON.parse(frame.slice(split + 4));
+  } catch {
+    return;
+  }
+  for (const item of payload.Metadata ?? []) {
+    if (item.Type !== 'WordBoundary') continue;
+    const text = item.Data?.text?.Text;
+    if (typeof text !== 'string') continue;
+    out.push({ timeMs: (item.Data.Offset ?? 0) / 10000, text });
+  }
+}
+
 function readBinaryFrame(buffer) {
   const view = new DataView(buffer);
   const headerLength = view.getUint16(0);
@@ -167,6 +189,7 @@ export class EdgeTts {
     volume = '+0%',
     pcmRate = DEFAULT_PCM_RATE,
     bareWs = false,
+    wordBoundary = true,
   }) {
     this.voice = voice;
     this.endpoint = endpoint;
@@ -177,6 +200,7 @@ export class EdgeTts {
     this.volume = volume;
     this.pcmRate = Number(pcmRate) || DEFAULT_PCM_RATE;
     this.bareWs = Boolean(bareWs);
+    this.wordBoundary = Boolean(wordBoundary);
   }
 
   /** Turns the collected frames into something the player can actually play. */
@@ -225,14 +249,16 @@ export class EdgeTts {
     socket.binaryType = 'arraybuffer';
     const requestId = randomId();
     const chunks = [];
+    const boundaries = [];
 
     return new Promise((resolve, reject) => {
-      const finish = (error, blob) => {
+      const finish = (error, result) => {
         clearTimeout(timer);
         signal?.removeEventListener('abort', onAbort);
         if (socket.readyState === WebSocket.OPEN) socket.close();
-        error ? reject(error) : resolve(blob);
+        error ? reject(error) : resolve(result);
       };
+      const done = () => finish(null, { blob: this.#toBlob(chunks), boundaries });
       const onAbort = () => finish(new Error('Đã huỷ yêu cầu.'));
       const timer = setTimeout(
         () => finish(new Error('Edge TTS không phản hồi (quá 20 giây).')),
@@ -251,7 +277,9 @@ export class EdgeTts {
                   audio: {
                     metadataoptions: {
                       sentenceBoundaryEnabled: 'false',
-                      wordBoundaryEnabled: 'false',
+                      // Word boundaries let a long request still be highlighted
+                      // word by word instead of all at once.
+                      wordBoundaryEnabled: this.wordBoundary ? 'true' : 'false',
                     },
                     outputFormat: this.format,
                   },
@@ -276,12 +304,16 @@ export class EdgeTts {
 
       socket.onmessage = (event) => {
         if (typeof event.data === 'string') {
+          if (event.data.includes('Path:audio.metadata')) {
+            collectBoundaries(event.data, boundaries);
+            return;
+          }
           if (event.data.includes('Path:turn.end')) {
             if (!chunks.length) {
               finish(new Error('Edge TTS trả về phiên không có audio.'));
               return;
             }
-            finish(null, this.#toBlob(chunks));
+            done();
           }
           return;
         }
@@ -297,7 +329,7 @@ export class EdgeTts {
         );
 
       socket.onclose = (event) => {
-        if (chunks.length) finish(null, this.#toBlob(chunks));
+        if (chunks.length) done();
         else finish(new Error(`Edge TTS đóng kết nối (mã ${event.code}).`));
       };
     });

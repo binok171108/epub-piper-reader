@@ -115,10 +115,26 @@ epub-reader-standalone.html?engine=edge&edge_endpoint=wss://relay:8585/edge/v1&e
 Lưu ý cho người viết relay: trang mở từ `file://` gửi **`Origin: null`**. Relay
 không được từ chối origin đó.
 
-**Đệm trước khi phát.** Với relay chậm, mỗi câu chờ một vòng round-trip thì nghe
-sẽ giật. Cài đặt → *Đệm trước khi phát* (mặc định 3 câu): dựng sẵn ngần đó câu rồi
-mới bắt đầu đọc, và luôn giữ đủ ngần đó phía trước. Cao hơn thì vào đầu chậm hơn
-nhưng giữa các câu mượt hơn.
+### Vì sao đệm không cứu được relay chậm
+
+Mỗi yêu cầu tốn một lần bắt tay TLS, một chặng qua relay, rồi relay lại nối lên
+Microsoft. Với một câu tiếng Việt chỉ dài 3–5 giây audio, phần chi phí cố định đó
+có thể ngang hoặc hơn chính đoạn audio. Khi tốc độ dựng chậm hơn tốc độ đọc thì
+buffer **chắc chắn cạn** — đệm sâu hơn chỉ dời chỗ khựng về sau, không xoá được nó.
+
+Nên bản một tệp **gộp nhiều câu vào một yêu cầu** (Cài đặt → *Độ dài mỗi yêu cầu*,
+mặc định 700 ký tự ≈ một đoạn văn). Chi phí cố định được chia đều cho nhiều audio
+hơn hẳn — trong bộ test, cả chương 7 câu đi trong **đúng một** lần gọi.
+
+Highlight vẫn theo từng câu: client bật `wordBoundaryEnabled` và dùng các sự kiện
+`WordBoundary` mà dịch vụ trả về để biết mỗi câu bắt đầu ở giây thứ mấy. Relay nào
+không chuyển tiếp `Path:audio.metadata` thì client tự ước lượng theo số ký tự —
+lệch chút nhưng vẫn bám được.
+
+Cài đặt còn hiện thông lượng lần gọi gần nhất (`… → 48.2s audio (15.5× thời gian
+thực)`). Nhỏ hơn 1× nghĩa là relay không thể theo kịp và phải tăng độ dài yêu cầu.
+
+**Đệm trước khi phát** (mặc định 2 khối) dựng sẵn ngần đó khối rồi mới đọc.
 
 ## Dùng trên iPhone
 

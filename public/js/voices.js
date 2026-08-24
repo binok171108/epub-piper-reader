@@ -142,10 +142,19 @@ export function customVoice(search = location.search) {
   };
 }
 
-/** Overrides for the Edge endpoint, for relays and for local testing. */
+/**
+ * Overrides for the Edge endpoint, for relays and for local testing. A relay
+ * saved in settings applies to every session; the URL still wins over it.
+ */
 export function edgeOptions(search = location.search) {
   const params = new URLSearchParams(search);
   const options = {};
+  try {
+    if (localStorage.getItem('relayEndpoint')) options.endpoint = localStorage.getItem('relayEndpoint');
+    if (localStorage.getItem('relayBare') !== '0') options.bareWs = true;
+  } catch {
+    /* storage unavailable */
+  }
   if (params.get('edge_endpoint')) options.endpoint = params.get('edge_endpoint');
   if (params.get('edge_format')) options.format = params.get('edge_format');
   if (params.get('edge_gec_version')) options.gecVersion = params.get('edge_gec_version');

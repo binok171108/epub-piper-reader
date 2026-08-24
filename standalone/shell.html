@@ -94,13 +94,20 @@
         <span>Yêu cầu MP3 (bỏ chọn để xin PCM)</span>
       </label>
       <label class="field" style="margin-top:18px">
-        <span>Đệm trước khi phát <b id="buffer-value">3 câu</b></span>
-        <input type="range" id="buffer-range" min="1" max="6" step="1" value="3">
+        <span>Độ dài mỗi yêu cầu <b id="chunk-value">700 ký tự</b></span>
+        <input type="range" id="chunk-range" min="200" max="1600" step="100" value="700">
         <span class="hint">
-          Dựng sẵn ngần này câu rồi mới bắt đầu đọc, và luôn giữ đủ ngần đó phía
-          trước. Cao hơn thì vào đầu chậm hơn nhưng giữa các câu mượt hơn.
+          Gộp nhiều câu vào một lần gọi relay. Dài hơn thì tổng số lần kết nối ít
+          đi rất nhiều — đây mới là thứ quyết định có bị khựng giữa câu hay không.
         </span>
       </label>
+
+      <label class="field">
+        <span>Đệm trước khi phát <b id="buffer-value">2 khối</b></span>
+        <input type="range" id="buffer-range" min="1" max="4" step="1" value="2">
+      </label>
+
+      <p class="hint" id="stat-line"></p>
 
       <p class="hint">
         Văn bản được gửi tới relay để tổng hợp. Relay phải có certificate hợp lệ,
