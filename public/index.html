@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Đọc EPUB · Piper TTS</title>
+<meta name="description" content="Trình đọc EPUB chạy offline, tổng hợp giọng nói bằng model Piper ngay trên máy.">
+<meta name="theme-color" content="#111417">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Đọc EPUB">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="stylesheet" href="./app.css">
+</head>
+<body data-view="library">
+
+<header class="bar bar--top">
+  <button class="icon-btn" id="btn-library" aria-label="Thư viện">☰</button>
+  <div class="bar__title">
+    <strong id="book-title">Đọc EPUB</strong>
+    <span id="book-author"></span>
+  </div>
+  <button class="icon-btn" id="btn-toc" aria-label="Mục lục">⁝≡</button>
+  <button class="icon-btn" id="btn-settings" aria-label="Cài đặt">⚙︎</button>
+</header>
+
+<main id="reader" tabindex="-1">
+  <section id="welcome" class="welcome">
+    <h1>Đọc EPUB bằng giọng Piper</h1>
+    <p>
+      Mở một tệp <code>.epub</code>, chọn giọng, rồi bấm phát. Mặc định dùng model
+      Piper chạy bằng WebAssembly <em>ngay trên máy bạn</em> - sau lần tải model đầu
+      tiên là hoạt động hoàn toàn offline. Trong Cài đặt còn có giọng Microsoft Edge:
+      hay hơn và không phải tải gì, nhưng cần mạng và văn bản được gửi đi để tổng hợp.
+    </p>
+    <label class="button button--primary">
+      Chọn tệp EPUB
+      <input type="file" id="file-input" accept=".epub,application/epub+zip" hidden>
+    </label>
+    <p class="hint" id="welcome-hint"></p>
+  </section>
+  <article id="chapter" class="chapter" hidden></article>
+</main>
+
+<footer class="bar bar--bottom" id="player" hidden>
+  <div class="progress"><div class="progress__fill" id="progress-fill"></div></div>
+  <div class="player__status" id="status"></div>
+  <div class="player__controls">
+    <button class="icon-btn" id="btn-prev-chapter" aria-label="Chương trước">⏮</button>
+    <button class="icon-btn" id="btn-prev" aria-label="Câu trước">◀◀</button>
+    <button class="icon-btn icon-btn--play" id="btn-play" aria-label="Phát">▶</button>
+    <button class="icon-btn" id="btn-next" aria-label="Câu sau">▶▶</button>
+    <button class="icon-btn" id="btn-next-chapter" aria-label="Chương sau">⏭</button>
+    <button class="chip" id="btn-rate">1.0×</button>
+  </div>
+</footer>
+
+<div class="scrim" id="scrim" hidden></div>
+
+<aside class="panel" id="panel-library" hidden>
+  <header><h2>Thư viện</h2><button class="icon-btn" data-close aria-label="Đóng">✕</button></header>
+  <div class="panel__body">
+    <label class="button button--primary">
+      Mở tệp EPUB khác
+      <input type="file" id="file-input-2" accept=".epub,application/epub+zip" hidden>
+    </label>
+    <ul class="list" id="book-list"></ul>
+  </div>
+</aside>
+
+<aside class="panel" id="panel-toc" hidden>
+  <header><h2>Mục lục</h2><button class="icon-btn" data-close aria-label="Đóng">✕</button></header>
+  <div class="panel__body"><ul class="list" id="toc-list"></ul></div>
+</aside>
+
+<aside class="panel" id="panel-settings" hidden>
+  <header><h2>Cài đặt</h2><button class="icon-btn" data-close aria-label="Đóng">✕</button></header>
+  <div class="panel__body">
+    <label class="field">
+      <span>Giọng đọc</span>
+      <select id="voice-select"></select>
+    </label>
+    <p class="hint" id="voice-note"></p>
+
+    <div class="field" id="edge-field">
+      <span>Thêm giọng Edge khác</span>
+      <div class="row">
+        <input type="text" id="edge-name" placeholder="vd: vi-VN-HoaiMyNeural"
+               autocapitalize="off" autocorrect="off" spellcheck="false">
+        <button class="button" id="btn-add-edge">Thêm</button>
+      </div>
+      <p class="hint">
+        Dán tên bất kỳ giọng Edge nào (dạng <code>ngôn ngữ-VÙNG-TênNeural</code>).
+        Xem danh sách đầy đủ bằng <code>edge-tts --list-voices</code>.
+      </p>
+    </div>
+
+    <div class="field" id="model-field">
+      <span>Model trên máy</span>
+      <div class="row">
+        <button class="button" id="btn-download">Tải model về máy</button>
+        <button class="button button--ghost" id="btn-delete-model">Xoá</button>
+      </div>
+      <div class="progress progress--inline" hidden id="download-progress">
+        <div class="progress__fill" id="download-fill"></div>
+      </div>
+      <p class="hint" id="storage-info"></p>
+    </div>
+
+    <label class="field">
+      <span>Tốc độ phát <b id="rate-value">1.0×</b></span>
+      <input type="range" id="rate-range" min="0.5" max="2" step="0.05" value="1">
+    </label>
+
+    <label class="field">
+      <span>Tốc độ tổng hợp <b id="length-value">mặc định</b></span>
+      <input type="range" id="length-range" min="0.6" max="1.6" step="0.05" value="1">
+      <span class="hint">
+        Đọc chậm ngay lúc tổng hợp cho giọng rõ hơn là chỉnh tốc độ phát, nhưng phải
+        dựng lại audio từ câu hiện tại.
+      </span>
+    </label>
+
+    <label class="field field--row">
+      <input type="checkbox" id="opt-scroll" checked>
+      <span>Tự cuộn theo câu đang đọc</span>
+    </label>
+
+    <label class="field">
+      <span>Cỡ chữ</span>
+      <input type="range" id="font-range" min="15" max="26" step="1" value="18">
+    </label>
+
+    <p class="hint" id="about"></p>
+  </div>
+</aside>
+
+<audio id="audio" preload="auto" playsinline></audio>
+<div class="toast" id="toast" hidden></div>
+
+<script type="module" src="./js/app.js"></script>
+</body>
+</html>

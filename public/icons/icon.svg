@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Đọc EPUB">
+  <rect width="512" height="512" rx="112" fill="#111417"/>
+  <g fill="none" stroke="#7bc79a" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M148 132h74a44 44 0 0 1 44 44v208a36 36 0 0 0-36-36h-82z"/>
+    <path d="M266 176a44 44 0 0 1 44-44h0"/>
+  </g>
+  <g stroke="#f0b429" stroke-width="26" stroke-linecap="round">
+    <path d="M330 214v84"/>
+    <path d="M382 186v140"/>
+    <path d="M434 236v40"/>
+  </g>
+</svg>

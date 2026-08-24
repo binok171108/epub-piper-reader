@@ -1,0 +1,25 @@
+{
+  "name": "epub-piper-reader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-capable PWA that reads EPUB files aloud with a local Piper (VITS) neural TTS model running in WebAssembly.",
+  "type": "module",
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs",
+    "postinstall": "node scripts/vendor.mjs",
+    "dev": "node scripts/serve.mjs",
+    "start": "node scripts/serve.mjs",
+    "dist": "node tools/make-dist.mjs",
+    "test": "node tools/make-test-epub.mjs && node tools/make-test-model.mjs && node tools/smoke-test.mjs",
+    "icons": "node tools/make-icons.mjs"
+  },
+  "dependencies": {
+    "@diffusionstudio/piper-wasm": "1.0.0",
+    "fflate": "0.8.2",
+    "onnxruntime-web": "1.18.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1",
+    "ws": "^8.21.3"
+  }
+}
